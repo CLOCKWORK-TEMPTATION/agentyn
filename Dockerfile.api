@@ -1,0 +1,43 @@
+# Dockerfile لخدمة API الرئيسية
+# API Service Dockerfile
+
+FROM node:18-alpine
+
+# إعداد مجلد العمل
+WORKDIR /app
+
+# تثبيت المتطلبات الأساسية
+RUN apk add --no-cache \
+    curl \
+    bash \
+    python3 \
+    make \
+    g++
+
+# نسخ ملفات package
+COPY package.json package-lock.json* ./
+COPY src/ ./src/
+COPY tsconfig.json ./
+COPY src/api/cinematic-api-server.ts ./
+
+# تثبيت المتطلبات Node.js
+RUN npm ci --only=production
+
+# بناء التطبيق
+RUN npm run build
+
+# إنشاء مجلدات البيانات
+RUN mkdir -p /app/uploads /app/reports /app/logs
+
+# تعيين الصلاحيات
+RUN chmod +x /app/dist/cinematic-api-server.js
+
+# كشف المنفذ
+EXPOSE 3001
+
+# فحص الصحة
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3001/health || exit 1
+
+# تشغيل الخدمة
+CMD ["node", "dist/cinematic-api-server.js"]

@@ -1,0 +1,42 @@
+# Dockerfile لخدمة Python Brain Service
+# Python Brain Service Dockerfile
+
+FROM python:3.11-slim
+
+# إعداد مجلد العمل
+WORKDIR /app
+
+# تثبيت المتطلبات الأساسية
+RUN apt-get update && apt-get install -y \
+    curl \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# نسخ ملفات Python
+COPY FINAL_PYTHON_BRAIN_SERVICE_COMPLETE.py /app/
+COPY requirements.txt /app/
+
+# تثبيت المتطلبات Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# إعداد متغيرات البيئة
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8000
+
+# إنشاء مجلدات البيانات
+RUN mkdir -p /app/logs /app/cache /app/uploads
+
+# تعيين الصلاحيات
+RUN chmod +x /app/FINAL_PYTHON_BRAIN_SERVICE_COMPLETE.py
+
+# كشف المنفذ
+EXPOSE 8000
+
+# فحص الصحة
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# تشغيل الخدمة
+CMD ["python", "FINAL_PYTHON_BRAIN_SERVICE_COMPLETE.py"]
