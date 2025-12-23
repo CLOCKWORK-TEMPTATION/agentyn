@@ -1,0 +1,69 @@
+{
+  "name": "langchain-agents-typescript",
+  "version": "1.0.0",
+  "description": "وكلاء ذكيين باستخدام LangChain.js و TypeScript",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "rag": "tsx src/rag-agent.ts",
+    "hybrid": "tsx src/hybrid-agent.ts",
+    "google-adk": "tsx src/google-adk-integration.ts",
+    "multi-agent": "tsx src/multi-agent-system.ts",
+    "server": "tsx src/api-server.ts",
+    "server:build": "npm run build && node dist/api-server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:infrastructure": "jest src/tests/infrastructure.test.ts",
+    "test:python": "jest src/tests/python-integration.test.ts",
+    "three-read": "tsx src/three-read-breakdown-system.ts",
+    "python-service": "python python_brain_service.py",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "langchain",
+    "ai",
+    "agents",
+    "typescript",
+    "anthropic",
+    "openai",
+    "bedrock"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/adk": "^0.2.0",
+    "@langchain/anthropic": "^1.3.2",
+    "@langchain/community": "^1.1.1",
+    "@langchain/core": "^1.1.7",
+    "@langchain/langgraph": "^1.0.7",
+    "@langchain/openai": "^1.2.0",
+    "@llamaindex/env": "^0.1.30",
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "glob": "^13.0.0",
+    "langchain": "^1.2.2",
+    "llamaindex": "^0.12.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.10",
+    "fast-check": "^4.5.2",
+    "jest": "^29.7.0",
+    "node-fetch": "^3.3.2",
+    "rimraf": "^6.0.1",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

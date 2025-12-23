@@ -1,0 +1,536 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# ============================================
+# Python Specific Files
+# ============================================
+
+# Python virtual environments
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+virtualenv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Python distribution / packaging
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# ============================================
+# API Keys & Credentials (CRITICAL)
+# ============================================
+
+# Environment files with API keys
+*.env
+*.env.*
+.env.backup
+.env.production
+.env.staging
+.env.development
+.env.test
+env.py
+config.py
+secrets.py
+credentials.py
+api_keys.py
+keys.py
+
+# AWS credentials
+.aws/
+aws-credentials.json
+*.pem
+*.key
+*.crt
+*.cer
+
+# Google Cloud credentials
+gcloud-credentials.json
+service-account.json
+*-credentials.json
+
+# Azure credentials
+azure-credentials.json
+
+# API configuration files
+config/secrets/
+config/credentials/
+secrets/
+credentials/
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_dsa
+id_dsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
+*.ppk
+
+# ============================================
+# AI/ML Model Files (Large & Sensitive)
+# ============================================
+
+# Model weights and checkpoints
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.ckpt
+*.pb
+*.onnx
+*.tflite
+*.mlmodel
+*.caffemodel
+*.weights
+*.bin
+*.safetensors
+
+# Model directories
+models/
+checkpoints/
+saved_models/
+pretrained/
+weights/
+embeddings/
+
+# Training data (potentially sensitive)
+data/raw/
+data/processed/
+data/private/
+data/confidential/
+datasets/private/
+*.csv
+*.tsv
+*.parquet
+*.feather
+
+# Tokenizers and vocabularies
+vocab.txt
+tokenizer.json
+*.vocab
+*.spm
+
+# ============================================
+# Database Files (Sensitive Data)
+# ============================================
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Database dumps
+*.sql
+*.dump
+*.backup
+backup/
+dumps/
+
+# Redis
+dump.rdb
+
+# MongoDB
+*.bson
+
+# ============================================
+# Output & Generated Files
+# ============================================
+
+# Generated breakdown files
+output/
+*.html
+breakdown_*.html
+production_breakdown*.html
+*_breakdown.html
+
+# Generated reports
+reports/
+*.pdf
+*.docx
+*.xlsx
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Cache directories
+.cache/
+cache/
+__pycache__/
+
+# ============================================
+# Script & Scenario Files (Potentially Confidential)
+# ============================================
+
+# Original scripts (may contain confidential content)
+script.txt
+scenario.txt
+screenplay.txt
+original_script.*
+raw_script.*
+confidential_script.*
+draft_*.txt
+
+# Private notes and drafts
+*_draft.py
+*_draft.md
+*_DRAFT.*
+*_draft.*
+notes/
+private_notes/
+TODO_private.md
+
+# ============================================
+# Configuration Files (May Contain Secrets)
+# ============================================
+
+# Application config
+config.ini
+config.yaml
+config.yml
+settings.ini
+settings.yaml
+local_settings.py
+production_settings.py
+
+# Docker secrets
+docker-compose.override.yml
+.dockerignore
+
+# Kubernetes secrets
+*-secret.yaml
+*-secrets.yaml
+
+# ============================================
+# Backup & Archive Files
+# ============================================
+
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.bz2
+*.gz
+backups/
+archives/
+
+# ============================================
+# System & IDE Specific
+# ============================================
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# NetBeans
+nbproject/
+
+# ============================================
+# Operating System Files
+# ============================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux
+*~
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Logs & Debug Files
+# ============================================
+
+logs/
+*.log
+*.log.*
+debug.log
+error.log
+access.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# ============================================
+# Test & Development Files
+# ============================================
+
+# Test outputs
+test_output/
+test_results/
+.pytest_cache/
+.tox/
+
+# Development databases
+dev.db
+development.sqlite3
+
+# Mock data
+mock_data/
+test_data/private/
+
+# ============================================
+# Personal & Sensitive Documents
+# ============================================
+
+# Personal information
+personal/
+private/
+confidential/
+sensitive/
+
+# Legal documents
+contracts/
+agreements/
+legal/
+
+# Financial data
+invoices/
+receipts/
+financial/

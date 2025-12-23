@@ -1,0 +1,11 @@
+{
+  "default_input_path": "script.txt",
+  "default_output_path": "revolutionary_breakdown_sheets.html",
+  "max_concurrent_scenes": 10,
+  "enable_caching": true,
+  "enable_wardrobe_inference": true,
+  "enable_legal_alerts": true,
+  "enable_cinematic_analysis": true,
+  "use_parallel_processing": true,
+  "chunk_size": 10
+}
