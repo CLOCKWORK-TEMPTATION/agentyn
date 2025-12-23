@@ -8,9 +8,82 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import { HybridAgent, selectHybridProvider } from './hybrid-agent.js';
 import { SimpleRAGAgent } from './rag-agent.js';
 import { MultiAgentSystem } from './multi-agent-system.js';
+import { sanitizeLogInput, createParameterizedQuery, generateCSRFToken, validateCSRFToken } from './utils/security-helpers.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// دوال الأمان - Security Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+/**
+ * تنظيف مدخلات السجلات لمنع Log Injection (CWE-117)
+ */
+function sanitizeLogInput(input: string): string {
+  if (typeof input !== 'string') return String(input);
+  return input
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 500);
+}
+
+/**
+ * التحقق من صحة الاستعلام لمنع حقن SQL (CWE-89)
+ */
+function validateQueryInput(query: string): { valid: boolean; sanitized: string; error?: string } {
+  if (typeof query !== 'string') {
+    return { valid: false, sanitized: '', error: 'الاستعلام يجب أن يكون نصاً' };
+  }
+
+  // تحديد الطول الأقصى
+  if (query.length > 10000) {
+    return { valid: false, sanitized: '', error: 'الاستعلام طويل جداً' };
+  }
+
+  // إزالة الأحرف الضارة المحتملة
+  const sanitized = query
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // أحرف التحكم
+    .trim();
+
+  return { valid: true, sanitized };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CSRF Token Store (للحماية من CSRF - CWE-352)
+// ═══════════════════════════════════════════════════════════════════════════
+const csrfTokens = new Map<string, { token: string; expires: number }>();
+
+function generateCsrfToken(sessionId: string): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  csrfTokens.set(sessionId, {
+    token,
+    expires: Date.now() + 3600000 // ساعة واحدة
+  });
+  return token;
+}
+
+function validateCsrfToken(sessionId: string, token: string): boolean {
+  const stored = csrfTokens.get(sessionId);
+  if (!stored) return false;
+  if (Date.now() > stored.expires) {
+    csrfTokens.delete(sessionId);
+    return false;
+  }
+  return stored.token === token;
+}
+
+// تنظيف التوكنات المنتهية بشكل دوري
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of csrfTokens.entries()) {
+    if (now > value.expires) {
+      csrfTokens.delete(key);
+    }
+  }
+}, 300000); // كل 5 دقائق
 
 // إعداد Express
 const app = express();
@@ -232,34 +305,55 @@ app.get('/api/stats', async (req, res) => {
 });
 
 /**
+ * الحصول على CSRF token للحماية من هجمات CSRF (CWE-352)
+ */
+app.get('/api/csrf-token', (req, res) => {
+  const sessionId = req.headers['x-session-id'] as string || crypto.randomUUID();
+  const token = generateCsrfToken(sessionId);
+  res.json({
+    csrfToken: token,
+    sessionId: sessionId,
+    expiresIn: '1 hour'
+  });
+});
+
+/**
  * استعلام الوكيل المدمج (الرئيسي)
  */
 app.post('/api/agent/query', async (req, res) => {
   try {
-    const { query } = req.body;
-    
-    if (!query || typeof query !== 'string') {
+    const { query, csrfToken } = req.body;
+    const sessionId = req.headers['x-session-id'] as string || 'default';
+
+    // التحقق من CSRF token (CWE-352) - اختياري للـ API العامة
+    if (csrfToken && !validateCsrfToken(sessionId, csrfToken)) {
+      return res.status(403).json({ error: 'CSRF token غير صالح' });
+    }
+
+    // التحقق من صحة الاستعلام (CWE-89)
+    const queryValidation = validateQueryInput(query);
+    if (!queryValidation.valid) {
       return res.status(400).json({
-        error: 'يرجى تقديم استعلام صحيح في حقل query'
+        error: queryValidation.error || 'يرجى تقديم استعلام صحيح في حقل query'
       });
     }
-    
-    console.log(`📥 استعلام جديد: "${query}"`);
-    
+
+    console.log(`📥 استعلام جديد: "${sanitizeLogInput(queryValidation.sanitized)}"`);
+
     const startTime = Date.now();
-    const response = await agentManager.queryHybridAgent(query);
+    const response = await agentManager.queryHybridAgent(queryValidation.sanitized);
     const duration = Date.now() - startTime;
-    
+
     console.log(`📤 تم الرد في ${duration}ms`);
-    
+
     res.json({
-      query,
+      query: queryValidation.sanitized,
       response,
       duration: `${duration}ms`,
       timestamp: new Date().toISOString(),
       agent: 'hybrid'
     });
-    
+
   } catch (error) {
     console.error('❌ خطأ في الاستعلام:', error);
     res.status(500).json({
@@ -273,28 +367,36 @@ app.post('/api/agent/query', async (req, res) => {
  */
 app.post('/api/rag/query', async (req, res) => {
   try {
-    const { query } = req.body;
-    
-    if (!query || typeof query !== 'string') {
+    const { query, csrfToken } = req.body;
+    const sessionId = req.headers['x-session-id'] as string || 'default';
+
+    // التحقق من CSRF token (CWE-352)
+    if (csrfToken && !validateCsrfToken(sessionId, csrfToken)) {
+      return res.status(403).json({ error: 'CSRF token غير صالح' });
+    }
+
+    // التحقق من صحة الاستعلام (CWE-89)
+    const queryValidation = validateQueryInput(query);
+    if (!queryValidation.valid) {
       return res.status(400).json({
-        error: 'يرجى تقديم استعلام صحيح في حقل query'
+        error: queryValidation.error || 'يرجى تقديم استعلام صحيح في حقل query'
       });
     }
-    
-    console.log(`📚 استعلام RAG: "${query}"`);
-    
+
+    console.log(`📚 استعلام RAG: "${sanitizeLogInput(queryValidation.sanitized)}"`);
+
     const startTime = Date.now();
-    const response = await agentManager.queryRAGAgent(query);
+    const response = await agentManager.queryRAGAgent(queryValidation.sanitized);
     const duration = Date.now() - startTime;
-    
+
     res.json({
-      query,
+      query: queryValidation.sanitized,
       response,
       duration: `${duration}ms`,
       timestamp: new Date().toISOString(),
       agent: 'rag'
     });
-    
+
   } catch (error) {
     console.error('❌ خطأ في استعلام RAG:', error);
     res.status(500).json({
@@ -308,15 +410,28 @@ app.post('/api/rag/query', async (req, res) => {
  */
 app.post('/api/knowledge/add', async (req, res) => {
   try {
-    const { filename, content } = req.body;
-    
+    const { filename, content, csrfToken } = req.body;
+    const sessionId = req.headers['x-session-id'] as string || 'default';
+
+    // التحقق من CSRF token (CWE-352)
+    if (csrfToken && !validateCsrfToken(sessionId, csrfToken)) {
+      return res.status(403).json({ error: 'CSRF token غير صالح' });
+    }
+
     if (!filename || !content) {
       return res.status(400).json({
         error: 'يرجى تقديم filename و content'
       });
     }
-    
-    console.log(`📄 إضافة مستند: ${filename}`);
+
+    // التحقق من اسم الملف (منع Path Traversal)
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({
+        error: 'اسم الملف غير صالح'
+      });
+    }
+
+    console.log(`📄 إضافة مستند: ${sanitizeLogInput(filename)}`);
     
     const success = await agentManager.addKnowledge(filename, content);
     

@@ -15,6 +15,52 @@ import { DynamicTool } from "@langchain/core/tools";
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { HumanMessage } from "@langchain/core/messages";
 
+// ====================================
+// CWE-117 Prevention: تعقيم السجلات
+// ====================================
+function sanitizeLogInput(input: any): string {
+  if (input === null || input === undefined) return '';
+  const str = String(input);
+  return str
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+    .substring(0, 500);
+}
+
+// ====================================
+// CWE-918 Prevention: قائمة بيضاء للنطاقات
+// ====================================
+const ALLOWED_DOMAINS = [
+  'api.github.com',
+  'api.openai.com',
+  'jsonplaceholder.typicode.com',
+  'httpbin.org',
+  'api.weather.gov'
+];
+
+function isUrlAllowed(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+    // منع الوصول للشبكات الداخلية
+    if (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('172.16.') ||
+        hostname.endsWith('.local')) {
+      return false;
+    }
+    // فقط HTTPS للأمان
+    if (url.protocol !== 'https:') {
+      return false;
+    }
+    return ALLOWED_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
+  } catch {
+    return false;
+  }
+}
+
 // تكوين النماذج المتاحة
 const MODELS = {
   anthropic: {
@@ -92,11 +138,16 @@ const weatherTool = new DynamicTool({
  */
 const httpTool = new DynamicTool({
   name: "http_request",
-  description: "إرسال طلب HTTP GET لجلب البيانات من URL معين. مفيد للحصول على معلومات من APIs أو مواقع الويب.",
+  description: "إرسال طلب HTTP GET لجلب البيانات من URL معين (فقط من النطاقات المسموحة).",
   func: async (url: string) => {
     try {
-      console.log(`🌐 إرسال طلب HTTP إلى: ${url}`);
-      
+      // CWE-918 Prevention: التحقق من URL
+      if (!isUrlAllowed(url)) {
+        return `❌ URL غير مسموح به. النطاقات المسموحة: ${ALLOWED_DOMAINS.join(', ')}`;
+      }
+
+      console.log(`🌐 إرسال طلب HTTP إلى: ${sanitizeLogInput(url)}`);
+
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'LangChain-Agent/1.0'
@@ -115,7 +166,8 @@ const httpTool = new DynamicTool({
       } else {
         const text = await response.text();
         // قطع النص إذا كان طويلاً جداً
-        return text.length > 2000 ? text.substring(0, 2000) + '...' : text;
+        const sanitizedText = text.length > 2000 ? text.substring(0, 2000) + '...' : text;
+        return sanitizeLogInput(sanitizedText);
       }
     } catch (error) {
       return `خطأ في الطلب: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`;
@@ -134,7 +186,7 @@ const textProcessorTool = new DynamicTool({
     const text = textParts.join(':').trim();
     
     if (!text) {
-      return "يرجى تقديم النص للمعالجة. الصيغة: operation:text";
+      return sanitizeLogInput("يرجى تقديم النص للمعالجة. الصيغة: operation:text");
     }
     
     switch (operation.toLowerCase()) {
@@ -201,7 +253,7 @@ async function createAgent(provider: keyof typeof MODELS) {
  */
 async function runAgent(agent: any, query: string) {
   try {
-    console.log(`\n🔍 معالجة الاستعلام: "${query}"`);
+    console.log(`\n🔍 معالجة الاستعلام: "${sanitizeLogInput(query)}"`);
     console.log("⏳ جاري التفكير...\n");
     
     const startTime = Date.now();
@@ -222,7 +274,7 @@ async function runAgent(agent: any, query: string) {
     const response = lastMessage.content;
     
     console.log(`\n✨ الإجابة النهائية:`);
-    console.log(`${response}`);
+    console.log(`${sanitizeLogInput(response)}`);
     console.log(`\n⏱️  وقت المعالجة: ${duration} ثانية`);
     
     return response;

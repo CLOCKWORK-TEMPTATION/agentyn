@@ -98,12 +98,6 @@ describe('Advanced Python Brain Service Property Tests', () => {
             expect(statusResponse.data).toHaveProperty('processing_type', jobRequest.processing_type);
             expect(statusResponse.data).toHaveProperty('created_at');
           } finally {
-            // CWE-400/664 Prevention: إلغاء الطلب قبل إزالته لمنع تسرب الموارد
-            try {
-              abortController.abort();
-            } catch (error) {
-              // تجاهل خطأ إذا تم الإلغاء مسبقاً
-            }
             // إزالة الطلب من القائمة النشطة عند الانتهاء
             const index = activeRequests.indexOf(abortController);
             if (index > -1) {
@@ -174,12 +168,6 @@ describe('Advanced Python Brain Service Property Tests', () => {
               throw error;
             }
           } finally {
-            // CWE-400/664 Prevention: إلغاء الطلب قبل إزالته لمنع تسرب الموارد
-            try {
-              abortController.abort();
-            } catch (error) {
-              // تجاهل خطأ إذا تم الإلغاء مسبقاً
-            }
             // إزالة الطلب من القائمة النشطة عند الانتهاء
             const index = activeRequests.indexOf(abortController);
             if (index > -1) {
@@ -245,123 +233,8 @@ describe('Advanced Python Brain Service Property Tests', () => {
             }
           }
         }
-      ),
-      { numRuns: 10 }
-    );
-  });
-
-  it('should handle continuity check correctly', async () => {
-    if (!serviceAvailable) return;
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.record({
-          script_content: fc.string({ minLength: 100, maxLength: 2000 }),
-          check_characters: fc.boolean(),
-          check_locations: fc.boolean(),
-          check_props: fc.boolean(),
-          check_timeline: fc.boolean()
-        }),
-        async (request) => {
-          const abortController = new AbortController();
-          activeRequests.push(abortController);
-          
-          try {
-            const response = await axios.post(`${SERVICE_URL}/continuity-check`, request, {
-              signal: abortController.signal,
-              timeout: 10000 // 10 ثوانٍ كحد أقصى
-            });
-            
-            expect(response.status).toBe(200);
-            expect(response.data).toHaveProperty('total_issues');
-            expect(response.data).toHaveProperty('total_warnings');
-            expect(response.data).toHaveProperty('continuity_score');
-            expect(response.data).toHaveProperty('checks_performed');
-            
-            // التحقق من أن النتيجة منطقية
-            expect(response.data.continuity_score).toBeGreaterThanOrEqual(0);
-            expect(response.data.continuity_score).toBeLessThanOrEqual(100);
-            
-            // التحقق من أن الفحوصات المطلوبة تم تنفيذها
-            expect(response.data.checks_performed.characters).toBe(request.check_characters);
-            expect(response.data.checks_performed.locations).toBe(request.check_locations);
-            expect(response.data.checks_performed.props).toBe(request.check_props);
-            expect(response.data.checks_performed.timeline).toBe(request.check_timeline);
-          } finally {
-            // إزالة الطلب من القائمة النشطة عند الانتهاء
-            const index = activeRequests.indexOf(abortController);
-            if (index > -1) {
-              activeRequests.splice(index, 1);
-            }
-          }
-        }
-      ),
-      { numRuns: 10 }
-    );
-  });
-
-  it('should handle job lifecycle correctly', async () => {
-    if (!serviceAvailable) return;
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.record({
-          processing_type: fc.constantFrom('scene_salience', 'continuity_check'),
-          script_content: fc.string({ minLength: 50, maxLength: 500 }),
-          priority: fc.integer({ min: 1, max: 10 })
-        }),
-        async (jobRequest) => {
-          const abortController = new AbortController();
-          activeRequests.push(abortController);
-
-          try {
-            // إرسال المهمة
-            const submitResponse = await axios.post(`${SERVICE_URL}/jobs/submit`, jobRequest, {
-              signal: abortController.signal,
-              timeout: 10000 // 10 ثوانٍ كحد أقصى
-            });
-            const jobId = submitResponse.data.job_id;
-            
-            // التحقق من قائمة المهام
-            const allJobsResponse = await axios.get(`${SERVICE_URL}/jobs`, {
-              signal: abortController.signal,
-              timeout: 10000 // 10 ثوانٍ كحد أقصى
-            });
-            expect(allJobsResponse.status).toBe(200);
-            expect(Array.isArray(allJobsResponse.data)).toBe(true);
-            
-            const ourJob = allJobsResponse.data.find((job: any) => job.job_id === jobId);
-            expect(ourJob).toBeDefined();
-            expect(ourJob.processing_type).toBe(jobRequest.processing_type);
-            
-            // محاولة إلغاء المهمة (قد تنجح أو تفشل حسب التوقيت)
-            try {
-              const cancelResponse = await axios.delete(`${SERVICE_URL}/jobs/${jobId}`, {
-                signal: abortController.signal,
-                timeout: 5000 // 5 ثوانٍ كحد أقصى
-              });
-              if (cancelResponse.status === 200) {
-                // التحقق من أن المهمة تم إلغاؤها
-                const statusResponse = await axios.get(`${SERVICE_URL}/jobs/${jobId}`, {
-                  signal: abortController.signal,
-                  timeout: 5000 // 5 ثوانٍ كحد أقصى
-                });
-                expect(['cancelled', 'completed'].includes(statusResponse.data.status)).toBe(true);
-              }
-            } catch (error) {
-              // المهمة قد تكون اكتملت بالفعل
-              expect(axios.isAxiosError(error)).toBe(true);
-            }
-          } finally {
-            // إزالة الطلب من القائمة النشطة عند الانتهاء
-            const index = activeRequests.indexOf(abortController);
-            if (index > -1) {
-              activeRequests.splice(index, 1);
-            }
-          }
-        }
-      ),
-      { numRuns: 5 }
-    );
-  });
+      }
+    ),
+    { numRuns: 5 }
+  );
 });

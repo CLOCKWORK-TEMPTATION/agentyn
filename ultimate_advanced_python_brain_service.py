@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-خدمة Python المتقدمة للتفريغ السينمائي - النسخة النهائية المكتملة
-Advanced Python Brain Service for Three-Read Breakdown System - Final Complete Version
+خدمة Python المتقدمة النهائية للتفريغ السينمائي
+Ultimate Advanced Python Brain Service for Three-Read Breakdown System
 
 يدعم جميع المتطلبات: 12.1-12.5, 13.1-13.5
 مع نظام مراقبة متقدم ومعالجة غير متزامنة وواجهة API شاملة
@@ -428,5 +428,54 @@ class AdvancedJobManager:
             memory_usage=memory_usage,
             memory_available=memory_available,
             active_jobs=len(self.active_jobs),
-            completed_jobs=len(self.completed_jobs)
+            completed_jobs=self.job_counts["completed"],
+            failed_jobs=self.job_counts["failed"],
+            pending_jobs=self.job_counts["pending"],
+            average_processing_time=avg_processing_time,
+            queue_length=len(self.job_queue),
+            uptime_seconds=uptime,
+            throughput_jobs_per_minute=throughput,
+            cache_hit_rate=cache_hit_rate,
+            timestamp=datetime.now()
+        )
+        
+        return metrics
+    
+    def get_analytics_report(self) -> AnalyticsReport:
+        """إنشاء تقرير التحليلات الشامل"""
+        total_analyses = len(self.jobs)
+        
+        # إحصائيات استخدام المكونات
+        component_usage = defaultdict(int)
+        for job in self.jobs.values():
+            component_usage[job.component.value] += 1
+        
+        # حساب معدل النجاح
+        successful_jobs = sum(1 for job in self.jobs.values() if job.status == JobStatus.COMPLETED)
+        success_rate = (successful_jobs / total_analyses * 100) if total_analyses > 0 else 0
+        
+        # حساب متوسط الثقة
+        completed_jobs = [job for job in self.jobs.values() if job.status == JobStatus.COMPLETED]
+        average_confidence = sum(job.confidence_score for job in completed_jobs) / len(completed_jobs) if completed_jobs else 0
+        
+        # إحصائيات وقت المعالجة
+        processing_times = [job.processing_time_ms for job in completed_jobs]
+        processing_time_stats = {
+            "min": min(processing_times) if processing_times else 0,
+            "max": max(processing_times) if processing_times else 0,
+            "avg": sum(processing_times) / len(processing_times) if processing_times else 0,
+            "median": sorted(processing_times)[len(processing_times)//2] if processing_times else 0
+        }
+        
+        return AnalyticsReport(
+            total_analyses=total_analyses,
+            component_usage=dict(component_usage),
+            success_rate=success_rate,
+            average_confidence=average_confidence,
+            processing_time_stats=processing_time_stats,
+            priority_distribution={},
+            daily_stats={},
+            error_analysis={},
+            resource_utilization={},
+            performance_trends={}
         )

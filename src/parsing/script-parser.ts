@@ -10,7 +10,8 @@
  */
 
 import { readFileSync } from 'fs';
-import { extname } from 'path';
+import { extname, resolve, normalize } from 'path';
+import { existsSync, realpathSync } from 'fs';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // نماذج البيانات
@@ -129,8 +130,23 @@ export class ScriptParser {
    */
   static parseScriptFile(filePath: string): ParsingResult {
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      return this.parseScript(content, filePath);
+      // الحماية من Path Traversal (CWE-22/23)
+      const normalizedPath = normalize(filePath);
+      const resolvedPath = resolve(normalizedPath);
+      
+      // التحقق من وجود الملف
+      if (!existsSync(resolvedPath)) {
+        throw new Error('الملف غير موجود');
+      }
+      
+      // التحقق من أن المسار الحقيقي يطابق المسار المطلوب (منع symlink attacks)
+      const realPath = realpathSync(resolvedPath);
+      if (realPath !== resolvedPath) {
+        throw new Error('مسار الملف غير آمن');
+      }
+      
+      const content = readFileSync(realPath, 'utf-8');
+      return this.parseScript(content, realPath);
     } catch (error) {
       return {
         format: ScriptFormat.UNKNOWN,
@@ -244,14 +260,14 @@ export class ScriptParser {
         if (line.includes(':') && !line.includes('http')) {
           const charMatch = line.match(/^([^:]+):/);
           if (charMatch) {
-            const character = charMatch[1].trim();
+            const character = this.sanitizeText(charMatch[1].trim());
             if (!currentScene.characters!.includes(character)) {
               currentScene.characters!.push(character);
             }
             currentScene.dialogue_count!++;
           }
         } else if (line.length > 10 && !line.includes(':')) {
-          currentScene.action_lines!.push(line);
+          currentScene.action_lines!.push(this.sanitizeText(line));
         }
       } else if (line.length > 0) {
         // إذا لم نجد ترويسة مشهد، أنشئ مشهد افتراضي
@@ -451,7 +467,7 @@ export class ScriptParser {
       const matches = content.match(pattern);
       if (matches) {
         matches.forEach(match => {
-          const character = match.replace(':', '').trim();
+          const character = this.sanitizeText(match.replace(':', '').trim());
           if (character.length > 1 && character.length < 50) {
             characters.add(character);
           }
@@ -497,10 +513,12 @@ export class ScriptParser {
     
     // فحص ترويسات المشاهد
     scenes.forEach((scene, index) => {
+      const safeSceneNumber = this.sanitizeText(scene.number);
+      
       if (scene.header.intExt === "UNKNOWN") {
         errors.push({
           type: "format_error",
-          message: `المشهد ${scene.number}: لم يتم تحديد داخلي/خارجي`,
+          message: `المشهد ${safeSceneNumber}: لم يتم تحديد داخلي/خارجي`,
           span_start: scene.span_start,
           severity: "warning",
           suggestion: "أضف 'داخلي' أو 'خارجي' في بداية المشهد"
@@ -510,7 +528,7 @@ export class ScriptParser {
       if (scene.header.location === "غير محدد") {
         errors.push({
           type: "format_error",
-          message: `المشهد ${scene.number}: الموقع غير محدد`,
+          message: `المشهد ${safeSceneNumber}: الموقع غير محدد`,
           span_start: scene.span_start,
           severity: "warning",
           suggestion: "حدد موقع المشهد بوضوح"
@@ -520,7 +538,7 @@ export class ScriptParser {
       if (scene.characters.length === 0 && scene.content.length > 50) {
         errors.push({
           type: "structure_error",
-          message: `المشهد ${scene.number}: لا يحتوي على شخصيات`,
+          message: `المشهد ${safeSceneNumber}: لا يحتوي على شخصيات`,
           span_start: scene.span_start,
           severity: "warning",
           suggestion: "تأكد من وجود حوار أو شخصيات في المشهد"
@@ -624,19 +642,29 @@ export class ScriptParser {
     };
   }
 
+  private static sanitizeText(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;')
+      .replace(/\//g, '&#x2F;');
+  }
+
   private static extractFDXSceneContent(sceneXml: string): string {
-    // إزالة XML tags وإرجاع النص
-    return sceneXml.replace(/<[^>]*>/g, '').trim();
+    const content = sceneXml.replace(/<[^>]*>/g, '').trim();
+    return this.sanitizeText(content);
   }
 
   private static extractFDXCharacters(sceneXml: string): string[] {
     const matches = sceneXml.match(/<Character>([^<]+)<\/Character>/g) || [];
-    return matches.map(match => match.replace(/<[^>]*>/g, '').trim());
+    return matches.map(match => this.sanitizeText(match.replace(/<[^>]*>/g, '').trim()));
   }
 
   private static extractFDXActions(sceneXml: string): string[] {
     const matches = sceneXml.match(/<Action>([^<]+)<\/Action>/g) || [];
-    return matches.map(match => match.replace(/<[^>]*>/g, '').trim());
+    return matches.map(match => this.sanitizeText(match.replace(/<[^>]*>/g, '').trim()));
   }
 
   // ═══════════════════════════════════════════════════════════════════════

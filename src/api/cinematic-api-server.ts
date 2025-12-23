@@ -143,19 +143,19 @@ app.get('/api/health', async (req, res) => {
 app.post('/api/analyze/script', checkSystemHealth, async (req, res) => {
   try {
     const { 
-      scriptContent, 
+      script_content, 
       task_type = 'full_analysis',
       complexity = 'medium',
       requirements = {}
     } = req.body;
 
-    if (!scriptContent || typeof scriptContent !== 'string') {
+    if (!script_content || typeof script_content !== 'string') {
       return res.status(400).json({
         error: 'محتوى السيناريو مطلوب'
       });
     }
 
-    if (scriptContent.length > 500000) {
+    if (script_content.length > 500000) {
       return res.status(400).json({
         error: 'النص طويل جداً (الحد الأقصى 500,000 حرف)'
       });
@@ -215,14 +215,14 @@ app.post('/api/analyze/file', checkSystemHealth, upload.single('script_file'), a
 
     // قراءة محتوى الملف
     const fs = await import('fs/promises');
-    const scriptContent = req.file.buffer.toString('utf-8');
+    const script_content = req.file.buffer.toString('utf-8');
 
     const taskId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const task: CinematicTask = {
       task_id: taskId,
       task_type,
-      script_content,
+      script_content: script_content,
       requirements: {
         complexity,
         max_response_time: 300000,

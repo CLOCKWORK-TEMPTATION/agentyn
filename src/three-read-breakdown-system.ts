@@ -376,10 +376,12 @@ export class ModelManager {
       "supervision": "claude-4-sonnet"
     };
     
-    const preferredModel = (modelSelectionRules as any)[taskType] || "claude-4-sonnet";
+    const preferredModel = Object.hasOwn(modelSelectionRules, taskType) 
+      ? modelSelectionRules[taskType as keyof typeof modelSelectionRules] 
+      : "claude-4-sonnet";
     
-    // Fallback chain
-    const fallbackChain = [preferredModel, "claude-4-sonnet", "gpt-4o", "gemini-pro"];
+    // Fallback chain with preferred model first, then alternatives
+    const fallbackChain: string[] = [preferredModel, "claude-4-sonnet", "gpt-4o", "gemini-pro"];
     
     for (const modelKey of fallbackChain) {
       const model = this.models.get(modelKey);
@@ -388,7 +390,9 @@ export class ModelManager {
       }
     }
     
-    throw new Error("لا توجد نماذج متاحة");
+    // No available models - provide detailed error information
+    const availableModels = Array.from(this.models.keys());
+    throw new Error(`لا توجد نماذج متاحة. النماذج المطلوبة: [${fallbackChain.join(', ')}]. النماذج المتوفرة: [${availableModels.join(', ')}]`);
   }
   
   getAvailableModels(): string[] {
@@ -446,6 +450,7 @@ export class EmotionalReadingAgent {
         if (jsonMatch) {
           analysisResult = JSON.parse(jsonMatch[0]);
         } else {
+          console.error("لم يتم العثور على JSON في الاستجابة من النموذج العاطفي");
           throw new Error("لم يتم العثور على JSON في الاستجابة");
         }
       } catch (parseError) {
@@ -462,6 +467,7 @@ export class EmotionalReadingAgent {
         );
         
         if (pythonJob.status !== "fallback") {
+          console.log(`⏳ انتظار اكتمال معالجة Python لتحليل العاطفي (job_id: ${pythonJob.job_id})...`);
           const pythonResult = await this.pythonService.waitForCompletion(pythonJob.job_id, 15000);
           // دمج النتائج
           analysisResult = this.mergeEmotionalAnalysis(analysisResult, pythonResult);
@@ -544,6 +550,7 @@ export class TechnicalReadingAgent {
       
     } catch (error) {
       console.error("❌ خطأ في الفحص التقني:", error);
+      console.warn("🔄 استخدام فحص تقني احتياطي بسبب الخطأ:", (error as Error).message);
       return this.createFallbackValidation(scriptText);
     }
   }
@@ -605,7 +612,7 @@ export class TechnicalReadingAgent {
         {
           type: "format",
           message: "يُنصح بمراجعة تنسيق السيناريو",
-          suggestion: "التأكد من اتباع المعايير القياسية"
+          suggestion: "التأكد من اتباع المعايير القياسية لتنسيق السيناريوهات"
         }
       ],
       scene_headers: sceneHeaders.map((header, index) => ({
@@ -879,11 +886,14 @@ export class BreakdownReadingAgent {
     
     const grouped = new Map<ProductionCategory, ProductionElement[]>();
     
+    // Use forEach with proper null check for better performance
     elements.forEach(element => {
-      if (!grouped.has(element.category)) {
-        grouped.set(element.category, []);
+      const categoryElements = grouped.get(element.category);
+      if (categoryElements) {
+        categoryElements.push(element);
+      } else {
+        grouped.set(element.category, [element]);
       }
-      grouped.get(element.category)!.push(element);
     });
     
     return Array.from(grouped.entries()).map(([category, items]) => ({
@@ -1053,6 +1063,7 @@ export class SupervisorAgent {
     }
     
     // تضارب 2: عناصر بثقة منخفضة
+    // Use Set for better performance when filtering low confidence elements
     const lowConfidenceElements = breakdown.elements.filter(el => el.confidence < 0.6);
     if (lowConfidenceElements.length > 0) {
       conflicts.push({
@@ -1142,6 +1153,7 @@ export class SupervisorAgent {
         break;
         
       default:
+        console.warn(`نوع إجراء غير معروف في حل التضارب: ${applicableRule.action.type}`);
         finalDecision = { action: "no_action" };
         reasoning.push("لا يوجد إجراء محدد");
     }
@@ -1333,13 +1345,13 @@ export class ThreeReadBreakdownSystem {
       
       const processingTime = (Date.now() - startTime) / 1000;
       
-      console.log("\n" + "=" .repeat(70));
+      console.log("\n" + "=".repeat(70));
       console.log("🎉 تم إكمال المعالجة بنجاح!");
       console.log(`⏱️ وقت المعالجة: ${processingTime.toFixed(2)} ثانية`);
       console.log(`🎯 الثقة الإجمالية: ${(finalReport.overall_confidence * 100).toFixed(1)}%`);
       console.log(`📊 العناصر المستخرجة: ${finalReport.final_elements.length}`);
       console.log(`⚠️ المراجعة البشرية مطلوبة: ${finalReport.human_review_required ? 'نعم' : 'لا'}`);
-      console.log("=" .repeat(70));
+      console.log("=".repeat(70));
       
       return finalReport;
       
@@ -1350,6 +1362,7 @@ export class ThreeReadBreakdownSystem {
   }
   
   private generateHTMLReport(report: FinalBreakdownReport): string {
+    const sanitize = (str: string) => str.replace(/[<>&"']/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]||c));
     const timestamp = report.processing_timestamp.toLocaleString('ar-EG');
     
     return `
@@ -1358,7 +1371,7 @@ export class ThreeReadBreakdownSystem {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تقرير التفريغ السينمائي - ${report.script_title}</title>
+    <title>تقرير التفريغ السينمائي - ${sanitize(report.script_title)}</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #f5f5f5; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -1384,8 +1397,8 @@ export class ThreeReadBreakdownSystem {
     <div class="container">
         <div class="header">
             <h1 class="title">تقرير التفريغ السينمائي</h1>
-            <p class="subtitle">${report.script_title}</p>
-            <p class="subtitle">تم الإنشاء: ${timestamp}</p>
+            <p class="subtitle">${sanitize(report.script_title)}</p>
+            <p class="subtitle">تم الإنشاء: ${sanitize(timestamp)}</p>
         </div>
         
         <div class="section">
@@ -1411,9 +1424,9 @@ export class ThreeReadBreakdownSystem {
         
         <div class="section">
             <h2 class="section-title">🎭 التحليل العاطفي</h2>
-            <p><strong>النبرة العامة:</strong> ${report.emotional_analysis.overall_tone}</p>
+            <p><strong>النبرة العامة:</strong> ${sanitize(report.emotional_analysis.overall_tone)}</p>
             <p><strong>مستوى التفاعل:</strong> ${(report.emotional_analysis.audience_engagement * 100).toFixed(1)}%</p>
-            <p><strong>رؤية المخرج:</strong> ${report.emotional_analysis.director_vision}</p>
+            <p><strong>رؤية المخرج:</strong> ${sanitize(report.emotional_analysis.director_vision)}</p>
         </div>
         
         <div class="section">
@@ -1427,8 +1440,8 @@ export class ThreeReadBreakdownSystem {
             <h2 class="section-title">📋 العناصر الإنتاجية</h2>
             ${report.final_elements.map(element => `
                 <div class="element">
-                    <strong>${element.name}</strong> (${element.category})
-                    <br><small>${element.description}</small>
+                    <strong>${sanitize(element.name)}</strong> (${sanitize(element.category)})
+                    <br><small>${sanitize(element.description)}</small>
                     <br><span class="confidence ${this.getConfidenceClass(element.confidence)}">
                         الثقة: ${(element.confidence * 100).toFixed(1)}%
                     </span>
@@ -1440,9 +1453,9 @@ export class ThreeReadBreakdownSystem {
             <h2 class="section-title">⚖️ قرارات الإشراف</h2>
             ${report.conflicts_resolved.map(decision => `
                 <div class="element">
-                    <strong>النزاع:</strong> ${decision.conflict_type}
-                    <br><strong>القرار:</strong> ${decision.resolution}
-                    <br><strong>المبرر:</strong> ${decision.reasoning.join(', ')}
+                    <strong>النزاع:</strong> ${sanitize(decision.conflict_type)}
+                    <br><strong>القرار:</strong> ${sanitize(decision.resolution)}
+                    <br><strong>المبرر:</strong> ${sanitize(decision.reasoning.join(', '))}
                 </div>
             `).join('')}
         </div>
@@ -1467,7 +1480,7 @@ export class ThreeReadBreakdownSystem {
         breakdown: !!this.breakdownAgent,
         supervisor: !!this.supervisorAgent
       },
-      pythonServiceConnected: this.pythonService ? true : false
+      pythonServiceConnected: !!this.pythonService
     };
   }
 }
@@ -1484,6 +1497,7 @@ interface SupervisorRule {
     type: "conflict" | "inconsistency" | "missing_evidence" | "low_confidence";
     agents_involved: string[];
     element_categories?: ProductionCategory[];
+    /** Custom logic expression for complex conditions */
     custom_logic?: string;
   };
   action: {

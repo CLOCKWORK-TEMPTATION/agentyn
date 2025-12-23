@@ -6,6 +6,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+// @ts-ignore - supertest types may not be available in all environments
 import request from 'supertest';
 import express from 'express';
 import path from 'path';
@@ -46,10 +47,16 @@ describe('اختبارات واجهات المستخدم والAPI', () => {
   beforeAll(async () => {
     console.log('🚀 بدء إعداد بيئة الاختبار...');
     
-    // إنشاء الأنظمة
+    // إنشاء الأنظمة - استخدام mock model للاختبارات
+    const mockModel = {
+      invoke: async () => ({ content: 'mock response' }),
+      generate: async () => ({ generations: [] }),
+      _llmType: () => 'mock'
+    } as any;
+
     cinematicSystem = new CinematicMultiAgentSystem();
-    observabilitySystem = new ObservabilitySystem();
-    evidenceSystem = new EvidenceTrackingSystem();
+    observabilitySystem = new ObservabilitySystem(mockModel);
+    evidenceSystem = new EvidenceTrackingSystem(mockModel);
     
     // إعداد التطبيق
     app = createTestApp();
@@ -486,7 +493,7 @@ describe('اختبارات واجهات المستخدم والAPI', () => {
 
       const responses = await Promise.all(requests);
       
-      responses.forEach((response, index) => {
+      responses.forEach((response: any, index: number) => {
         expect(response.status).toBe(200);
         expect(response.body).toHaveProperty('task_id');
       });

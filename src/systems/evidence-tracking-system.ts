@@ -17,7 +17,7 @@ import {
 export interface EvidenceChain {
   chain_id: string;
   element_id: string;
-  evidence_items: EvidenceItem[];
+  evidence_items: string[];  // IDs of evidence items stored in evidenceItems Map
   confidence_score: number;
   verification_status: 'pending' | 'verified' | 'disputed' | 'rejected';
   created_at: Date;
@@ -100,7 +100,21 @@ export class EvidenceTrackingSystem {
   private evidenceItems: Map<string, EvidenceItem> = new Map();
   private validationRules: Map<string, EvidenceValidationRule> = new Map();
   private model: BaseLanguageModel;
-  
+
+  /**
+   * تطهير المدخلات لمنع Log Injection (CWE-117)
+   * يزيل أحرف التحكم التي يمكن أن تزور السجلات
+   */
+  private static sanitizeLogInput(input: string | number): string {
+    const str = String(input);
+    // إزالة أحرف التحكم: newlines, carriage returns, tabs, وأحرف التحكم الأخرى
+    return str
+      .replace(/[\r\n\t\x00-\x1F\x7F]/g, ' ')  // استبدال أحرف التحكم بمسافة
+      .replace(/\s+/g, ' ')                      // تقليل المسافات المتعددة
+      .trim()
+      .slice(0, 500);                            // حد أقصى للطول
+  }
+
   // إحصائيات النظام
   private systemStats = {
     total_evidence_chains: 0,
@@ -192,7 +206,7 @@ export class EvidenceTrackingSystem {
     this.evidenceChains.set(chainId, chain);
     this.updateSystemStats();
 
-    console.log(`✅ تم إنشاء سلسلة أدلة جديدة: ${chainId} للعنصر: ${elementId}`);
+    console.log(`✅ تم إنشاء سلسلة أدلة جديدة: ${EvidenceTrackingSystem.sanitizeLogInput(chainId)} للعنصر: ${EvidenceTrackingSystem.sanitizeLogInput(elementId)}`);
     return chain;
   }
 
@@ -797,6 +811,6 @@ export class EvidenceTrackingSystem {
     }
 
     this.updateSystemStats();
-    console.log(`🧹 تم تنظيف البيانات الأقدم من ${daysOld} يوم`);
+    console.log(`🧹 تم تنظيف البيانات الأقدم من ${EvidenceTrackingSystem.sanitizeLogInput(daysOld)} يوم`);
   }
 }

@@ -132,7 +132,7 @@ export class AdvancedModelManager {
   }
 
   private initializeModels() {
-    for (const [key, config] of this.modelConfigs.entries()) {
+    for (const [key, config] of Array.from(this.modelConfigs.entries())) {
       try {
         const model = this.createModel(config);
         this.models.set(key, model);
@@ -440,7 +440,7 @@ export class AdvancedModelManager {
   }
 
   private async performHealthChecks() {
-    for (const [modelId, config] of this.modelConfigs.entries()) {
+    for (const [modelId, config] of Array.from(this.modelConfigs.entries())) {
       try {
         const startTime = Date.now();
         
@@ -546,6 +546,10 @@ export class AdvancedModelManager {
     };
   }
 
+  private sanitizeForLog(input: string): string {
+    return input.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1F\x7F]/g, '');
+  }
+
   async addModel(config: ModelConfig): Promise<void> {
     this.modelConfigs.set(config.id, config);
     this.initializeMetrics(config.id);
@@ -553,9 +557,9 @@ export class AdvancedModelManager {
     try {
       const model = this.createModel(config);
       this.models.set(config.id, model);
-      console.log(`✓ تم إضافة النموذج: ${config.name}`);
+      console.log(`✓ تم إضافة النموذج: ${this.sanitizeForLog(config.name)}`);
     } catch (error) {
-      console.error(`❌ فشل إضافة النموذج ${config.name}:`, error);
+      console.error(`❌ فشل إضافة النموذج ${this.sanitizeForLog(config.name)}:`, error);
       throw error;
     }
   }
@@ -565,13 +569,13 @@ export class AdvancedModelManager {
     this.models.delete(modelId);
     this.modelMetrics.delete(modelId);
     this.modelHealth.delete(modelId);
-    console.log(`✓ تم إزالة النموذج: ${modelId}`);
+    console.log(`✓ تم إزالة النموذج: ${this.sanitizeForLog(modelId)}`);
   }
 
   async updateModelConfig(modelId: string, updates: Partial<ModelConfig>): Promise<void> {
     const currentConfig = this.modelConfigs.get(modelId);
     if (!currentConfig) {
-      throw new Error(`النموذج ${modelId} غير موجود`);
+      throw new Error(`النموذج ${this.sanitizeForLog(modelId)} غير موجود`);
     }
 
     const updatedConfig = { ...currentConfig, ...updates };
@@ -582,9 +586,9 @@ export class AdvancedModelManager {
       try {
         const newModel = this.createModel(updatedConfig);
         this.models.set(modelId, newModel);
-        console.log(`✓ تم تحديث النموذج: ${modelId}`);
+        console.log(`✓ تم تحديث النموذج: ${this.sanitizeForLog(modelId)}`);
       } catch (error) {
-        console.error(`❌ فشل تحديث النموذج ${modelId}:`, error);
+        console.error(`❌ فشل تحديث النموذج ${this.sanitizeForLog(modelId)}:`, error);
         throw error;
       }
     }

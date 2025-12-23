@@ -8,6 +8,86 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { glob } from 'glob';
+import { validatePath, validateUrl, safeExec } from './utils/security-helpers.js';
+
+/**
+ * تنظيف مدخلات السجلات لمنع Log Injection (CWE-117)
+ */
+function sanitizeLogInput(input: string | number): string {
+  if (typeof input === 'number') return String(input);
+  if (typeof input !== 'string') return String(input);
+  return input
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 500);
+}
+
+/**
+ * التحقق من أمان المسار لمنع Path Traversal (CWE-22, CWE-23)
+ */
+function isPathSafe(inputPath: string, allowedBaseDir?: string): { safe: boolean; normalizedPath: string; error?: string } {
+  try {
+    if (!allowedBaseDir) {
+      throw new Error('Base directory is required for path validation');
+    }
+    
+    // Use the secure validation function from security-helpers
+    const resolvedPath = validatePath(allowedBaseDir, inputPath);
+    const normalizedPath = path.relative(allowedBaseDir, resolvedPath);
+    
+    return { safe: true, normalizedPath };
+  } catch (error) {
+    return { safe: false, normalizedPath: inputPath, error: error instanceof Error ? error.message : 'خطأ في معالجة المسار' };
+  }
+}
+
+/**
+ * التحقق من أمان URL لمنع SSRF (CWE-918)
+ */
+function isUrlSafe(url: string): { safe: boolean; error?: string } {
+  try {
+    const parsedUrl = new URL(url);
+
+    // السماح فقط بـ HTTP و HTTPS
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return { safe: false, error: 'البروتوكول غير مسموح، يُسمح فقط بـ HTTP/HTTPS' };
+    }
+
+    // حظر العناوين الداخلية
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const blockedHosts = [
+      'localhost', '127.0.0.1', '::1', '0.0.0.0',
+      '169.254.169.254', // AWS metadata
+      'metadata.google.internal', // GCP metadata
+    ];
+
+    if (blockedHosts.includes(hostname)) {
+      return { safe: false, error: 'لا يُسمح بالوصول إلى العناوين المحلية أو الداخلية' };
+    }
+
+    // حظر نطاقات IP الخاصة
+    const privateRanges = [
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+      /^192\.168\.\d{1,3}\.\d{1,3}$/,
+    ];
+
+    if (privateRanges.some(range => range.test(hostname))) {
+      return { safe: false, error: 'لا يُسمح بالوصول إلى عناوين IP الخاصة' };
+    }
+
+    return { safe: true };
+  } catch {
+    return { safe: false, error: 'URL غير صالح' };
+  }
+}
+
+/**
+ * الحصول على المجلد الآمن للعمليات
+ */
+function getSafeBaseDir(): string {
+  return process.cwd();
+}
 
 /**
  * أداة قراءة الملفات
@@ -17,20 +97,28 @@ export const readFileTool = new DynamicTool({
   description: "قراءة محتوى ملف من النظام. استخدم هذه الأداة لقراءة ملفات النصوص والكود والبيانات. المعامل: مسار الملف",
   func: async (filePath: string) => {
     try {
-      if (!fs.existsSync(filePath)) {
-        return `❌ الملف غير موجود: ${filePath}`;
+      // التحقق من أمان المسار (CWE-22, CWE-23)
+      const pathCheck = isPathSafe(filePath, getSafeBaseDir());
+      if (!pathCheck.safe) {
+        return `❌ خطأ أمني: ${pathCheck.error}`;
       }
-      
-      const stats = fs.statSync(filePath);
+
+      const safePath = pathCheck.normalizedPath;
+
+      if (!fs.existsSync(safePath)) {
+        return `❌ الملف غير موجود: ${sanitizeLogInput(filePath)}`;
+      }
+
+      const stats = fs.statSync(safePath);
       if (stats.isDirectory()) {
-        return `❌ المسار يشير إلى مجلد وليس ملف: ${filePath}`;
+        return `❌ المسار يشير إلى مجلد وليس ملف: ${sanitizeLogInput(filePath)}`;
       }
-      
-      const content = fs.readFileSync(filePath, 'utf8');
+
+      const content = fs.readFileSync(safePath, 'utf8');
       const lines = content.split('\n').length;
       const size = (stats.size / 1024).toFixed(2);
-      
-      return `📄 ملف: ${filePath}
+
+      return `📄 ملف: ${sanitizeLogInput(filePath)}
 📊 الحجم: ${size} KB | الأسطر: ${lines}
 📝 المحتوى:
 ${content}`;
@@ -50,22 +138,30 @@ export const writeFileTool = new DynamicTool({
     try {
       const [filePath, ...contentParts] = input.split('|||');
       const content = contentParts.join('|||');
-      
+
       if (!filePath || content === undefined) {
         return `❌ صيغة خاطئة. استخدم: مسار_الملف|||المحتوى`;
       }
-      
+
+      // التحقق من أمان المسار (CWE-22, CWE-23)
+      const pathCheck = isPathSafe(filePath, getSafeBaseDir());
+      if (!pathCheck.safe) {
+        return `❌ خطأ أمني: ${pathCheck.error}`;
+      }
+
+      const safePath = pathCheck.normalizedPath;
+
       // إنشاء المجلد إذا لم يكن موجوداً
-      const dir = path.dirname(filePath);
+      const dir = path.dirname(safePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
-      fs.writeFileSync(filePath, content, 'utf8');
-      const stats = fs.statSync(filePath);
+
+      fs.writeFileSync(safePath, content, 'utf8');
+      const stats = fs.statSync(safePath);
       const size = (stats.size / 1024).toFixed(2);
-      
-      return `✅ تم كتابة الملف بنجاح: ${filePath}
+
+      return `✅ تم كتابة الملف بنجاح: ${sanitizeLogInput(filePath)}
 📊 الحجم: ${size} KB | الأسطر: ${content.split('\n').length}`;
     } catch (error) {
       return `❌ خطأ في كتابة الملف: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`;
@@ -85,25 +181,33 @@ export const editFileTool = new DynamicTool({
       if (parts.length !== 3) {
         return `❌ صيغة خاطئة. استخدم: مسار_الملف|||النص_القديم|||النص_الجديد`;
       }
-      
+
       const [filePath, oldText, newText] = parts;
-      
-      if (!fs.existsSync(filePath)) {
-        return `❌ الملف غير موجود: ${filePath}`;
+
+      // التحقق من أمان المسار (CWE-22, CWE-23)
+      const pathCheck = isPathSafe(filePath, getSafeBaseDir());
+      if (!pathCheck.safe) {
+        return `❌ خطأ أمني: ${pathCheck.error}`;
       }
-      
-      let content = fs.readFileSync(filePath, 'utf8');
-      
+
+      const safePath = pathCheck.normalizedPath;
+
+      if (!fs.existsSync(safePath)) {
+        return `❌ الملف غير موجود: ${sanitizeLogInput(filePath)}`;
+      }
+
+      let content = fs.readFileSync(safePath, 'utf8');
+
       if (!content.includes(oldText)) {
         return `❌ النص المطلوب تعديله غير موجود في الملف`;
       }
-      
+
       const updatedContent = content.replace(oldText, newText);
-      fs.writeFileSync(filePath, updatedContent, 'utf8');
-      
-      return `✅ تم تعديل الملف بنجاح: ${filePath}
-🔄 تم استبدال: "${oldText.substring(0, 50)}..."
-➡️  بـ: "${newText.substring(0, 50)}..."`;
+      fs.writeFileSync(safePath, updatedContent, 'utf8');
+
+      return `✅ تم تعديل الملف بنجاح: ${sanitizeLogInput(filePath)}
+🔄 تم استبدال: "${sanitizeLogInput(oldText.substring(0, 50))}..."
+➡️  بـ: "${sanitizeLogInput(newText.substring(0, 50))}..."`;
     } catch (error) {
       return `❌ خطأ في تعديل الملف: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`;
     }
@@ -118,29 +222,46 @@ export const bashTool = new DynamicTool({
   description: "تنفيذ أوامر النظام (PowerShell على Windows، Bash على Linux/Mac). احذر من الأوامر الخطيرة!",
   func: async (command: string) => {
     try {
-      // قائمة الأوامر المحظورة لأسباب أمنية
-      const dangerousCommands = ['rm -rf', 'del /f', 'format', 'shutdown', 'reboot', 'sudo rm'];
-      
-      if (dangerousCommands.some(dangerous => command.toLowerCase().includes(dangerous))) {
-        return `❌ أمر محظور لأسباب أمنية: ${command}`;
+      // قائمة الأوامر المحظورة لأسباب أمنية (CWE-78)
+      const dangerousCommands = [
+        'rm -rf', 'del /f', 'format', 'shutdown', 'reboot', 'sudo rm',
+        'mkfs', 'dd if=', ':(){:|:&};:', 'chmod -R 777', 'wget', 'curl -o',
+        '> /dev/', 'mv /* ', 'rm -r /', ':(){ :|:', 'fork bomb'
+      ];
+
+      // التحقق من الأوامر الخطيرة
+      const lowerCommand = command.toLowerCase();
+      if (dangerousCommands.some(dangerous => lowerCommand.includes(dangerous.toLowerCase()))) {
+        return `❌ أمر محظور لأسباب أمنية: ${sanitizeLogInput(command)}`;
       }
-      
-      console.log(`🔧 تنفيذ الأمر: ${command}`);
-      
-      const output = execSync(command, { 
-        encoding: 'utf8',
-        timeout: 30000, // 30 ثانية كحد أقصى
-        maxBuffer: 1024 * 1024 // 1MB كحد أقصى للإخراج
-      });
-      
+
+      // منع حقن الأوامر (CWE-78, CWE-77)
+      const commandInjectionPatterns = [
+        /[;&|`$]/, // فواصل الأوامر
+        /\$\(/, // command substitution
+        /`.*`/, // backtick substitution
+      ];
+
+      if (commandInjectionPatterns.some(pattern => pattern.test(command))) {
+        return `❌ أمر محظور: يحتوي على أحرف حقن أوامر غير مسموحة`;
+      }
+
+      console.log(`🔧 تنفيذ الأمر: ${sanitizeLogInput(command)}`);
+
+      // Use safe execution instead of execSync to prevent command injection
+      const result = await safeExec(
+        process.platform === 'win32' ? 'cmd.exe' : 'bash',
+        process.platform === 'win32' ? ['/c', command] : ['-c', command]
+      );
+
       return `✅ تم تنفيذ الأمر بنجاح:
-💻 الأمر: ${command}
+💻 الأمر: ${sanitizeLogInput(command)}
 📤 الإخراج:
-${output}`;
+${result.stdout}`;
     } catch (error: any) {
-      return `❌ خطأ في تنفيذ الأمر: ${command}
-🚫 الخطأ: ${error.message}
-📤 الإخراج: ${error.stdout || 'لا يوجد إخراج'}`;
+      return `❌ خطأ في تنفيذ الأمر: ${sanitizeLogInput(command)}
+🚫 الخطأ: ${sanitizeLogInput(error.message)}
+📤 الإخراج: ${sanitizeLogInput(error.stderr || error.stdout || 'لا يوجد إخراج')}`;
     }
   },
 });
@@ -153,31 +274,41 @@ export const globTool = new DynamicTool({
   description: "البحث عن ملفات باستخدام أنماط Glob. مثال: *.js أو **/*.ts أو src/**/*.json",
   func: async (pattern: string) => {
     try {
-      console.log(`🔍 البحث بنمط: ${pattern}`);
-      
-      const files = await glob(pattern, { 
-        ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**'],
-        maxDepth: 10
-      });
-      
-      if (files.length === 0) {
-        return `❌ لم يتم العثور على ملفات تطابق النمط: ${pattern}`;
+      // التحقق من أمان النمط (CWE-22, CWE-23)
+      if (pattern.includes('..') || pattern.startsWith('/') || /^[A-Za-z]:/.test(pattern)) {
+        return `❌ خطأ أمني: نمط البحث غير آمن`;
       }
-      
+
+      console.log(`🔍 البحث بنمط: ${sanitizeLogInput(pattern)}`);
+
+      const files = await glob(pattern, {
+        ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**'],
+        maxDepth: 10,
+        cwd: getSafeBaseDir()
+      });
+
+      if (files.length === 0) {
+        return `❌ لم يتم العثور على ملفات تطابق النمط: ${sanitizeLogInput(pattern)}`;
+      }
+
       const fileDetails = files.slice(0, 50).map(file => {
         try {
-          const stats = fs.statSync(file);
+          // التحقق من أمان كل مسار قبل القراءة
+          const pathCheck = isPathSafe(file, getSafeBaseDir());
+          if (!pathCheck.safe) return `📄 ${sanitizeLogInput(file)} (محظور)`;
+
+          const stats = fs.statSync(pathCheck.normalizedPath);
           const size = (stats.size / 1024).toFixed(2);
-          return `📄 ${file} (${size} KB)`;
+          return `📄 ${sanitizeLogInput(file)} (${size} KB)`;
         } catch {
-          return `📄 ${file} (غير قابل للقراءة)`;
+          return `📄 ${sanitizeLogInput(file)} (غير قابل للقراءة)`;
         }
       }).join('\n');
-      
+
       const totalCount = files.length;
       const displayCount = Math.min(50, totalCount);
-      
-      return `🔍 نتائج البحث للنمط: ${pattern}
+
+      return `🔍 نتائج البحث للنمط: ${sanitizeLogInput(pattern)}
 📊 العدد الإجمالي: ${totalCount} ملف
 📋 عرض أول ${displayCount} ملف:
 
@@ -199,28 +330,38 @@ export const grepTool = new DynamicTool({
   func: async (input: string) => {
     try {
       const [searchText, filePattern = '**/*.{js,ts,json,md,txt}'] = input.split('|||');
-      
+
       if (!searchText) {
         return `❌ يرجى تحديد النص المطلوب البحث عنه`;
       }
-      
-      console.log(`🔍 البحث عن: "${searchText}" في الملفات: ${filePattern}`);
-      
-      const files = await glob(filePattern, { 
-        ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**']
+
+      // التحقق من أمان النمط (CWE-22, CWE-23)
+      if (filePattern.includes('..') || filePattern.startsWith('/') || /^[A-Za-z]:/.test(filePattern)) {
+        return `❌ خطأ أمني: نمط البحث غير آمن`;
+      }
+
+      console.log(`🔍 البحث عن: "${sanitizeLogInput(searchText)}" في الملفات: ${sanitizeLogInput(filePattern)}`);
+
+      const files = await glob(filePattern, {
+        ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**'],
+        cwd: getSafeBaseDir()
       });
-      
+
       const results: string[] = [];
       let totalMatches = 0;
-      
+
       for (const file of files.slice(0, 100)) { // حد أقصى 100 ملف
         try {
-          const content = fs.readFileSync(file, 'utf8');
+          // التحقق من أمان المسار قبل القراءة
+          const pathCheck = isPathSafe(file, getSafeBaseDir());
+          if (!pathCheck.safe) continue;
+
+          const content = fs.readFileSync(pathCheck.normalizedPath, 'utf8');
           const lines = content.split('\n');
-          
+
           lines.forEach((line, index) => {
             if (line.toLowerCase().includes(searchText.toLowerCase())) {
-              results.push(`📄 ${file}:${index + 1}: ${line.trim()}`);
+              results.push(`📄 ${sanitizeLogInput(file)}:${index + 1}: ${sanitizeLogInput(line.trim())}`);
               totalMatches++;
             }
           });
@@ -228,14 +369,14 @@ export const grepTool = new DynamicTool({
           // تجاهل الملفات غير القابلة للقراءة
         }
       }
-      
+
       if (results.length === 0) {
-        return `❌ لم يتم العثور على "${searchText}" في أي ملف`;
+        return `❌ لم يتم العثور على "${sanitizeLogInput(searchText)}" في أي ملف`;
       }
-      
+
       const displayResults = results.slice(0, 20).join('\n');
-      
-      return `🔍 نتائج البحث عن: "${searchText}"
+
+      return `🔍 نتائج البحث عن: "${sanitizeLogInput(searchText)}"
 📊 العدد الإجمالي: ${totalMatches} تطابق
 📋 عرض أول 20 نتيجة:
 
@@ -256,35 +397,54 @@ export const webFetchTool = new DynamicTool({
   description: "جلب محتوى صفحة ويب أو API. يدعم HTML و JSON والنصوص العادية.",
   func: async (url: string) => {
     try {
-      console.log(`🌐 جلب المحتوى من: ${url}`);
-      
+      // التحقق من أمان URL لمنع SSRF (CWE-918)
+      const urlCheck = isUrlSafe(url);
+      if (!urlCheck.safe) {
+        return `❌ خطأ أمني: ${urlCheck.error}`;
+      }
+
+      console.log(`🌐 جلب المحتوى من: ${sanitizeLogInput(url)}`);
+
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'AdvancedAgent/1.0 (Educational Purpose)',
           'Accept': 'text/html,application/json,text/plain,*/*'
-        }
+        },
+        redirect: 'manual' // منع التوجيه التلقائي لتجنب SSRF عبر إعادة التوجيه
       });
-      
+
+      // التحقق من إعادة التوجيه
+      if (response.status >= 300 && response.status < 400) {
+        const redirectUrl = response.headers.get('location');
+        if (redirectUrl) {
+          const redirectCheck = isUrlSafe(redirectUrl);
+          if (!redirectCheck.safe) {
+            return `❌ خطأ أمني: إعادة التوجيه إلى عنوان غير آمن`;
+          }
+        }
+        return `⚠️ إعادة توجيه إلى: ${sanitizeLogInput(redirectUrl || 'غير محدد')}`;
+      }
+
       if (!response.ok) {
         return `❌ خطأ HTTP: ${response.status} - ${response.statusText}`;
       }
-      
+
       const contentType = response.headers.get('content-type') || '';
       let content: string;
-      
+
       if (contentType.includes('application/json')) {
         const jsonData = await response.json();
         content = JSON.stringify(jsonData, null, 2);
       } else {
         content = await response.text();
       }
-      
+
       // قطع المحتوى إذا كان طويلاً جداً
-      const truncatedContent = content.length > 5000 
+      const truncatedContent = content.length > 5000
         ? content.substring(0, 5000) + '\n\n... (تم قطع المحتوى - الطول الأصلي: ' + content.length + ' حرف)'
         : content;
-      
-      return `🌐 تم جلب المحتوى من: ${url}
+
+      return `🌐 تم جلب المحتوى من: ${sanitizeLogInput(url)}
 📊 نوع المحتوى: ${contentType}
 📏 الحجم: ${content.length} حرف
 📄 المحتوى:
@@ -304,7 +464,7 @@ export const webSearchTool = new DynamicTool({
   description: "البحث على الويب (محاكاة). في التطبيق الحقيقي، يمكن ربطها بـ Google Search API أو Bing API.",
   func: async (query: string) => {
     try {
-      console.log(`🔍 البحث على الويب عن: "${query}"`);
+      console.log(`🔍 البحث على الويب عن: "${sanitizeLogInput(query)}"`);
       
       // محاكاة نتائج البحث
       const mockResults = [
@@ -355,23 +515,34 @@ export const todoWriteTool = new DynamicTool({
       if (parts.length < 2) {
         return `❌ صيغة خاطئة. استخدم: العنوان|||المهمة1|||المهمة2|||...`;
       }
-      
+
       const [title, ...tasks] = parts;
-      const todoPath = 'TODO.md';
-      
-      let todoContent = `# قائمة المهام: ${title}\n\n`;
+      // استخدام مسار ثابت وآمن (CWE-22, CWE-23)
+      const todoPath = path.join(getSafeBaseDir(), 'TODO.md');
+
+      // التحقق من أمان المسار
+      const pathCheck = isPathSafe(todoPath, getSafeBaseDir());
+      if (!pathCheck.safe) {
+        return `❌ خطأ أمني: ${pathCheck.error}`;
+      }
+
+      // تنظيف المحتوى من أحرف خطيرة
+      const sanitizedTitle = sanitizeLogInput(title);
+      const sanitizedTasks = tasks.map(task => sanitizeLogInput(task.trim()));
+
+      let todoContent = `# قائمة المهام: ${sanitizedTitle}\n\n`;
       todoContent += `📅 تم الإنشاء: ${new Date().toLocaleString('ar-EG')}\n\n`;
-      
-      tasks.forEach((task, index) => {
-        todoContent += `- [ ] ${index + 1}. ${task.trim()}\n`;
+
+      sanitizedTasks.forEach((task, index) => {
+        todoContent += `- [ ] ${index + 1}. ${task}\n`;
       });
-      
+
       todoContent += `\n---\n📊 إجمالي المهام: ${tasks.length}\n`;
-      
-      fs.writeFileSync(todoPath, todoContent, 'utf8');
-      
-      return `✅ تم إنشاء قائمة المهام: ${todoPath}
-📋 العنوان: ${title}
+
+      fs.writeFileSync(pathCheck.normalizedPath, todoContent, 'utf8');
+
+      return `✅ تم إنشاء قائمة المهام: TODO.md
+📋 العنوان: ${sanitizedTitle}
 📊 عدد المهام: ${tasks.length}
 📄 المحتوى:
 
@@ -391,20 +562,30 @@ export const skillTool = new DynamicTool({
   func: async (input: string) => {
     try {
       const [skillName, ...args] = input.split('|||');
-      
+
       switch (skillName.toLowerCase()) {
         case 'analyze_code':
           const filePath = args[0];
-          if (!filePath || !fs.existsSync(filePath)) {
+          if (!filePath) {
             return `❌ يرجى تحديد مسار ملف صحيح للتحليل`;
           }
-          
-          const code = fs.readFileSync(filePath, 'utf8');
+
+          // التحقق من أمان المسار (CWE-22, CWE-23)
+          const pathCheck = isPathSafe(filePath, getSafeBaseDir());
+          if (!pathCheck.safe) {
+            return `❌ خطأ أمني: ${pathCheck.error}`;
+          }
+
+          if (!fs.existsSync(pathCheck.normalizedPath)) {
+            return `❌ الملف غير موجود: ${sanitizeLogInput(filePath)}`;
+          }
+
+          const code = fs.readFileSync(pathCheck.normalizedPath, 'utf8');
           const lines = code.split('\n').length;
           const functions = (code.match(/function\s+\w+|const\s+\w+\s*=/g) || []).length;
           const comments = (code.match(/\/\/.*|\/\*[\s\S]*?\*\//g) || []).length;
-          
-          return `🔍 تحليل الكود: ${filePath}
+
+          return `🔍 تحليل الكود: ${sanitizeLogInput(filePath)}
 📊 الإحصائيات:
    - الأسطر: ${lines}
    - الدوال: ${functions}

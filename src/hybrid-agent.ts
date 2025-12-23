@@ -17,6 +17,53 @@ import { HumanMessage } from "@langchain/core/messages";
 import { SimpleRAGAgent, setupLlamaIndexModel } from './rag-agent.js';
 import { advancedTools } from './advanced-tools.js';
 
+// ====================================
+// CWE-117 Prevention: تعقيم السجلات
+// ====================================
+function sanitizeLogInput(input: any): string {
+  if (input === null || input === undefined) return '';
+  const str = String(input);
+  return str
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+    .substring(0, 500);
+}
+
+// ====================================
+// CWE-918 Prevention: قائمة بيضاء للنطاقات
+// ====================================
+const ALLOWED_DOMAINS = [
+  'api.github.com',
+  'api.openai.com',
+  'jsonplaceholder.typicode.com',
+  'httpbin.org',
+  'api.weather.gov'
+];
+
+function isUrlAllowed(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    // منع الوصول للشبكات الداخلية
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('172.16.') ||
+        hostname.endsWith('.local')) {
+      return false;
+    }
+    // فقط HTTPS للأمان
+    if (url.protocol !== 'https:') {
+      return false;
+    }
+    // التحقق من القائمة البيضاء
+    return ALLOWED_DOMAINS.some(domain => hostname === domain || hostname.endsWith('.' + domain));
+  } catch {
+    return false;
+  }
+}
+
 // تكوين النماذج المتاحة
 const HYBRID_MODELS = {
   anthropic: {
@@ -81,7 +128,7 @@ class HybridAgent {
    */
   async initialize() {
     try {
-      console.log(`🤖 تهيئة الوكيل المدمج باستخدام ${HYBRID_MODELS[this.provider].name}...`);
+      console.log(`🤖 تهيئة الوكيل المدمج باستخدام ${sanitizeLogInput(HYBRID_MODELS[this.provider].name)}...`);
       
       // إعداد RAG
       if (this.provider === 'openai' || process.env.OPENAI_API_KEY) {
@@ -101,7 +148,7 @@ class HybridAgent {
               return "عذراً، قاعدة المعرفة غير متاحة حالياً.";
             }
             
-            console.log(`🔍 البحث في قاعدة المعرفة عن: "${query}"`);
+            console.log(`🔍 البحث في قاعدة المعرفة عن: "${sanitizeLogInput(query)}"`);
             const result = await this.ragAgent.query(query);
             return `📚 من قاعدة المعرفة:\n${result}`;
           } catch (error) {
@@ -131,9 +178,14 @@ class HybridAgent {
 
       const httpTool = new DynamicTool({
         name: "http_request",
-        description: "إرسال طلب HTTP GET لجلب البيانات من URL معين.",
+        description: "إرسال طلب HTTP GET لجلب البيانات من URL معين (فقط من النطاقات المسموحة).",
         func: async (url: string) => {
           try {
+            // CWE-918 Prevention: التحقق من URL
+            if (!isUrlAllowed(url)) {
+              return `❌ URL غير مسموح به. النطاقات المسموحة: ${ALLOWED_DOMAINS.join(', ')}`;
+            }
+
             const response = await fetch(url, {
               headers: { 'User-Agent': 'HybridAgent/1.0' }
             });
@@ -175,7 +227,7 @@ class HybridAgent {
       });
 
       console.log(`✅ تم تهيئة الوكيل المدمج بنجاح`);
-      console.log(`🛠️  الأدوات المتاحة: ${tools.map(t => t.name).join(', ')}`);
+      console.log(`🛠️  الأدوات المتاحة: ${sanitizeLogInput(tools.map(t => t.name).join(', '))}`);
       
       return true;
       
@@ -194,7 +246,7 @@ class HybridAgent {
     }
 
     try {
-      console.log(`\n🔍 معالجة الاستعلام: "${question}"`);
+      console.log(`\n🔍 معالجة الاستعلام: "${sanitizeLogInput(question)}"`);
       console.log("⏳ جاري التفكير والبحث...\n");
       
       const startTime = Date.now();
@@ -215,7 +267,7 @@ class HybridAgent {
       const response = lastMessage.content;
       
       console.log(`\n✨ الإجابة النهائية:`);
-      console.log(`${response}`);
+      console.log(`${sanitizeLogInput(response)}`);
       console.log(`\n⏱️  وقت المعالجة: ${duration} ثانية`);
       
       return response;
@@ -232,7 +284,7 @@ class HybridAgent {
   async addKnowledge(filename: string, content: string) {
     try {
       await this.ragAgent.addDocument(filename, content);
-      console.log(`📄 تم إضافة معرفة جديدة: ${filename}`);
+      console.log(`📄 تم إضافة معرفة جديدة: ${sanitizeLogInput(filename)}`);
       return true;
     } catch (error) {
       console.error("❌ خطأ في إضافة المعرفة:", error);

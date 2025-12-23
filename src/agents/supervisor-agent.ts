@@ -15,6 +15,8 @@ import {
   BreakdownResult,
   ProductionElement
 } from '../three-read-breakdown-system.js';
+import { sanitizeLogInput } from '../utils/security-helpers.js';
+
 
 export interface ConflictDetection {
   conflict_id: string;
@@ -58,11 +60,11 @@ export class SupervisorAgent {
 
     // 1. كشف النزاعات
     const conflicts = await this.detectConflicts(context);
-    console.log(`📋 تم كشف ${conflicts.length} نزاع`);
+    console.log(`📋 تم كشف ${sanitizeLogInput(conflicts.length)} نزاع`);
 
     // 2. حل النزاعات
     const decisions = await this.resolveConflicts(conflicts, context);
-    console.log(`⚖️ تم اتخاذ ${decisions.length} قرار`);
+    console.log(`⚖️ تم اتخاذ ${sanitizeLogInput(decisions.length)} قرار`);
 
     // 3. دمج النتائج النهائية
     const finalElements = await this.mergeFinalResults(context, decisions);

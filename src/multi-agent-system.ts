@@ -9,6 +9,7 @@ import 'dotenv/config';
 import { DynamicTool } from "@langchain/core/tools";
 import { HybridAgent } from './hybrid-agent.js';
 import { GoogleADKHybridAgent } from './google-adk-integration.js';
+import { sanitizeLogInput } from './utils/security-helpers.js';
 
 /**
  * أنواع الوكلاء المتخصصين
@@ -30,6 +31,8 @@ interface AgentResult {
   response: string;
   executionTime: number;
   confidence: number;
+  error?: Error;
+  duration?: string;
 }
 
 /**
@@ -122,15 +125,27 @@ class MultiAgentSystem {
   }
 
   /**
+   * تعقيم المدخلات من الأكواد الخطرة
+   */
+  private sanitizeInput(input: string): string {
+    return input
+      .replace(/[<>"'`]/g, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+=/gi, '')
+      .substring(0, 10000);
+  }
+
+  /**
    * تحليل الاستعلام لاختيار الوكيل الأنسب
    */
   private analyzeQuery(query: string): {
     bestAgent: string;
     confidence: number;
-    reasoning: string;
+    category: string;
+    instructions: string;
     alternativeAgents: string[];
   } {
-    const lowerQuery = query.toLowerCase();
+    const lowerQuery = this.sanitizeInput(query).toLowerCase();
     const scores: Map<string, number> = new Map();
     
     // حساب نقاط التطابق لكل وكيل
@@ -173,12 +188,14 @@ class MultiAgentSystem {
       .map(([name]) => name);
     
     const agentInfo = this.agents.get(bestAgent);
-    const reasoning = `تم اختيار ${agentInfo?.role} بناءً على تطابق الكلمات المفتاحية: ${agentInfo?.expertise.join(', ')}`;
+    const category = agentInfo?.role || 'غير محدد';
+    const instructions = `تم اختيار ${agentInfo?.role || 'غير محدد'} بناءً على تطابق الكلمات المفتاحية: ${agentInfo?.expertise?.join(', ') || 'لا يوجد'}`;
     
     return {
       bestAgent,
       confidence,
-      reasoning,
+      category,
+      instructions,
       alternativeAgents
     };
   }
@@ -193,15 +210,18 @@ class MultiAgentSystem {
   }> {
     await this.initialize();
     
-    console.log(`\n🔍 تحليل الاستعلام: "${query}"`);
+    const sanitizedQuery = this.sanitizeInput(query);
+    console.log(`\n🔍 تحليل الاستعلام: "${sanitizeLogInput(query)}"`);
     
     // تحليل الاستعلام
-    const analysis = this.analyzeQuery(query);
-    console.log(`🎯 الوكيل المختار: ${analysis.bestAgent} (ثقة: ${(analysis.confidence * 100).toFixed(1)}%)`);
-    console.log(`💭 السبب: ${analysis.reasoning}`);
+    const analysis = this.analyzeQuery(sanitizedQuery);
+    console.log(`🎯 الوكيل المختار: ${sanitizeLogInput(analysis.bestAgent)}`);
+    console.log(`📊 الثقة: ${(analysis.confidence * 100).toFixed(1)}%`);
+    console.log(`🏷️  التصنيف: ${sanitizeLogInput(analysis.category)}`);
+    console.log(`📝 التعليمات: ${sanitizeLogInput(analysis.instructions)}`);
     
     // تنفيذ الاستعلام بالوكيل الأساسي
-    const primaryResult = await this.executeWithAgent(analysis.bestAgent, query, sessionId);
+    const primaryResult = await this.executeWithAgent(analysis.bestAgent, sanitizedQuery, sessionId);
     
     // إذا فشل الوكيل الأساسي أو كانت الثقة منخفضة، جرب البدائل
     let alternatives: AgentResult[] = [];
@@ -211,16 +231,16 @@ class MultiAgentSystem {
       
       for (const altAgent of analysis.alternativeAgents.slice(0, 2)) {
         try {
-          const altResult = await this.executeWithAgent(altAgent, query, sessionId);
+          const altResult = await this.executeWithAgent(altAgent, sanitizedQuery, sessionId);
           alternatives.push(altResult);
           
           // إذا نجح البديل، استخدمه كنتيجة أساسية
           if (altResult.success && altResult.confidence > primaryResult.confidence) {
-            console.log(`✨ البديل ${altAgent} حقق نتيجة أفضل`);
+            console.log(`✨ البديل ${sanitizeLogInput(altAgent)} حقق نتيجة أفضل`);
             break;
           }
         } catch (error) {
-          console.log(`⚠️  فشل البديل ${altAgent}: ${error.message}`);
+          console.warn(`⚠️  فشل البديل ${sanitizeLogInput(altAgent)}:`, (error as Error).message);
         }
       }
     }
@@ -244,7 +264,7 @@ class MultiAgentSystem {
     const startTime = Date.now();
     
     try {
-      console.log(`🤖 تنفيذ بواسطة ${agent.role}...`);
+      console.log(`🤖 تنفيذ بواسطة ${sanitizeLogInput(agent.role)}...`);
       
       let response: string;
       
@@ -275,20 +295,22 @@ class MultiAgentSystem {
         success: true,
         response,
         executionTime,
-        confidence
+        confidence,
+        duration: `${executionTime}ms`
       };
       
     } catch (error) {
       const executionTime = Date.now() - startTime;
       
-      console.log(`❌ فشل ${agent.role}: ${error.message}`);
+      console.log(`❌ فشل ${agent.role}: ${(error as Error).message}`);
       
       return {
         agentName,
         success: false,
-        response: `خطأ في ${agent.role}: ${error.message}`,
+        response: `خطأ في ${agent.role}: ${(error as Error).message}`,
         executionTime,
-        confidence: 0
+        confidence: 0,
+        error: error as Error
       };
     }
   }
@@ -322,8 +344,8 @@ class MultiAgentSystem {
   async executeParallel(query: string, agentNames: string[], sessionId?: string): Promise<AgentResult[]> {
     await this.initialize();
     
-    console.log(`\n🔄 تنفيذ متوازي للاستعلام: "${query}"`);
-    console.log(`🤖 الوكلاء: ${agentNames.join(', ')}`);
+    console.log(`\n🔄 تنفيذ متوازي للاستعلام: "${sanitizeLogInput(query)}"`);
+    console.log(`🤖 الوكلاء: ${agentNames.map(a => sanitizeLogInput(a)).join(', ')}`);
     
     const promises = agentNames.map(agentName => 
       this.executeWithAgent(agentName, query, sessionId)
@@ -355,8 +377,8 @@ class MultiAgentSystem {
   }> {
     await this.initialize();
     
-    console.log(`\n⏭️  تنفيذ تسلسلي للاستعلام: "${query}"`);
-    console.log(`🤖 الوكلاء بالترتيب: ${agentNames.join(' → ')}`);
+    console.log(`\n⏭️  تنفيذ تسلسلي للاستعلام: "${sanitizeLogInput(query)}"`);
+    console.log(`🤖 الوكلاء بالترتيب: ${agentNames.map(a => sanitizeLogInput(a)).join(' → ')}`);
     
     const intermediateResults: AgentResult[] = [];
     let currentQuery = query;
@@ -364,13 +386,14 @@ class MultiAgentSystem {
     
     for (let i = 0; i < agentNames.length; i++) {
       const agentName = agentNames[i];
-      console.log(`\n📍 المرحلة ${i + 1}/${agentNames.length}: ${agentName}`);
+      console.log(`\n📍 المرحلة ${i + 1}/${agentNames.length}: ${sanitizeLogInput(agentName)}`);
       
       const result = await this.executeWithAgent(agentName, currentQuery, sessionId);
       intermediateResults.push(result);
       
       if (!result.success) {
         console.log(`⚠️  فشل في المرحلة ${i + 1}، إيقاف التسلسل`);
+        console.log(`❌ الخطأ: ${sanitizeLogInput((result.error as Error).message)}`);
         finalResult = result;
         break;
       }
@@ -521,10 +544,10 @@ async function main() {
           const duration = ((Date.now() - startTime) / 1000).toFixed(2);
           
           console.log(`\n📤 النتيجة:`);
-          console.log(`🤖 الوكيل: ${result.result.agentName}`);
-          console.log(`✅ النجاح: ${result.result.success ? 'نعم' : 'لا'}`);
-          console.log(`🎯 الثقة: ${(result.result.confidence * 100).toFixed(1)}%`);
-          console.log(`⏱️  المدة: ${duration}s`);
+          console.log(`🤖 الوكيل: ${sanitizeLogInput(result.result.agentName)}`);
+          console.log(`⏱️  المدة: ${sanitizeLogInput(result.result.duration)}s`);
+          console.log(`📊 الثقة: ${(result.result.confidence * 100).toFixed(1)}%`);
+          console.log(`\n📝 الاستجابة: ${sanitizeLogInput(result.result.response.substring(0, 200))}...`);
           console.log(`💭 التحليل: ${result.analysis.reasoning}`);
           console.log(`\n📝 الاستجابة:`);
           console.log(result.result.response);
@@ -539,13 +562,14 @@ async function main() {
           const duration = ((Date.now() - startTime) / 1000).toFixed(2);
           
           console.log(`\n📤 النتائج المتوازية:`);
-          console.log(`⏱️  المدة الإجمالية: ${duration}s`);
-          
+          console.log(`⏱️  المدة الإجمالية: ${sanitizeLogInput(duration)}s`);
+          console.log(`\n📊 النتائج (${results.length}):`);
           results.forEach((result, index) => {
-            console.log(`\n🤖 الوكيل ${index + 1}: ${result.agentName}`);
-            console.log(`✅ النجاح: ${result.success ? 'نعم' : 'لا'}`);
-            console.log(`🎯 الثقة: ${(result.confidence * 100).toFixed(1)}%`);
-            console.log(`📝 الاستجابة: ${result.response.substring(0, 200)}...`);
+            console.log(`\n${index + 1}. ${sanitizeLogInput(result.agentName || 'فشل')}:`);
+            if (result.success) {
+              console.log(`   ✅ نجح - الثقة: ${(result.confidence * 100).toFixed(1)}%`);
+              console.log(`   📝 الاستجابة: ${sanitizeLogInput(result.response.substring(0, 150))}...`);
+            }
           });
           
         } else if (test.type === "sequential") {

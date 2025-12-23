@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-خدمة Python المتقدمة المحسنة للأداء - التفريغ السينمائي
-Performance Optimized Python Brain Service for Cinematic Breakdown
+خدمة Python المتقدمة المحسنة للأداء - التفريغ السينمائي (نسخة مكتملة)
+Performance Optimized Python Brain Service for Cinematic Breakdown (Complete Version)
 
 يدعم المعالجة المتوازية والتحسينات المتقدمة للأداء
 Requirements: 6.1-6.5, 10.1-10.5, 12.1
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Query, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -24,12 +24,10 @@ import psutil
 from collections import defaultdict, deque
 from threading import Lock
 import hashlib
-import functools
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import multiprocessing as mp
 import gc
 import sys
-import resource
 
 # إعداد التسجيل المحسن
 logging.basicConfig(level=logging.INFO)
@@ -433,10 +431,8 @@ class ParallelProcessor:
         # إعداد المهام المتوازية
         if use_multiprocessing:
             executor = self.process_pool
-            method_name = 'submit'
         else:
             executor = self.thread_pool
-            method_name = 'submit'
         
         # إرسال المهام
         futures = []
@@ -445,21 +441,3 @@ class ParallelProcessor:
                 future = executor.submit(self._process_chunk, chunk, processor_func, *args)
                 futures.append((i, future))
                 self.active_tasks.add(future)
-        
-        # جمع النتائج
-        results = [None] * total_chunks
-        successful_chunks = 0
-        total_processing_time = 0
-        
-        for chunk_index, future in futures:
-            try:
-                result = future.result(timeout=300)  # 5 دقائق timeout
-                results[chunk_index] = result
-                
-                if result['success']:
-                    successful_chunks += 1
-                    total_processing_time += result['processing_time_ms']
-                    
-            except Exception as e:
-                logger.error(f"خطأ في معالجة الجزء {chunk_index}: {str(e)}")
-                results[chunk_index] = {'success': False, 'error': str(e)}

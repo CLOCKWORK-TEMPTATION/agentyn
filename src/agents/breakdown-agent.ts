@@ -13,6 +13,20 @@ import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { PythonBrainService, ProductionCategory, ProductionElement, Evidence, AgentProvenance } from '../three-read-breakdown-system.js';
 import { ClassificationEngine } from '../classification/production-classifier.js';
+import { sanitizeLogInput, escapeHtml } from '../utils/security-helpers.js';
+
+/**
+ * تنظيف النص من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
+ */
+function escapeHtml(text: string): string {
+  if (typeof text !== 'string') return String(text);
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // نماذج البيانات
@@ -168,7 +182,7 @@ export class BreakdownReadingAgent {
           allElements = this.enhanceWithPythonResults(allElements, pythonResult);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين بـ Python service:", (pythonError as Error).message);
       }
       
       // إنشاء أوراق التفريغ
@@ -187,7 +201,7 @@ export class BreakdownReadingAgent {
         quality_metrics: qualityMetrics
       };
       
-      console.log(`✅ تم استخراج ${allElements.length} عنصر إنتاجي`);
+      console.log(`✅ تم استخراج ${sanitizeLogInput(allElements.length)} عنصر إنتاجي`);
       return result;
       
     } catch (error) {
@@ -570,7 +584,8 @@ ${context.scene_content}
   private extractCharacterList(scriptText: string): string[] {
     const characterPattern = /^([أ-ي\w\s]{2,30}):/gm;
     const matches = scriptText.match(characterPattern) || [];
-    return [...new Set(matches.map(m => m.replace(':', '').trim()))];
+    // تنظيف الأسماء من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
+    return [...new Set(matches.map(m => escapeHtml(m.replace(':', '').trim())))];
   }
 
   private extractCharacterContext(elementData: any, context: ExtractionContext): string | undefined {
@@ -597,16 +612,16 @@ ${context.scene_content}
   }
 
   private guessCategory(elementName: string, keyword: string): ProductionCategory {
-    const categoryGuesses = {
-      'يحمل': ProductionCategory.PROPS_HANDHELD,
-      'يستخدم': ProductionCategory.PROPS_INTERACTIVE,
-      'يرتدي': ProductionCategory.WARDROBE_COSTUMES,
+    const actionMap: Record<string, ProductionCategory> = {
+      يحمل: ProductionCategory.PROPS_HANDHELD,
+      يستخدم: ProductionCategory.PROPS_INTERACTIVE,
+      يرتدي: ProductionCategory.WARDROBE_COSTUMES,
       'على الطاولة': ProductionCategory.SET_DRESSING,
       'في يده': ProductionCategory.PROPS_HANDHELD,
-      'يقود': ProductionCategory.VEHICLES_PICTURE
+      يقود: ProductionCategory.VEHICLES_PICTURE
     };
     
-    return categoryGuesses[keyword] || ProductionCategory.MISCELLANEOUS;
+    return actionMap[action.toLowerCase()] || ProductionCategory.MISCELLANEOUS;
   }
 
   private groupElementsByCategory(elements: ProductionElement[]): Record<string, ProductionElement[]> {

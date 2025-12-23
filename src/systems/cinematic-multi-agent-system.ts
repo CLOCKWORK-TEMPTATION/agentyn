@@ -21,6 +21,150 @@ import {
   ProductionElement
 } from '../three-read-breakdown-system.js';
 
+// ====================================
+// CWE-94 Prevention: Input Validation
+// ====================================
+
+// قائمة بيضاء لأنواع المهام المسموح بها
+const ALLOWED_TASK_TYPES = ['emotional_analysis', 'technical_validation', 'breakdown_extraction', 'full_analysis', 'supervision'] as const;
+type AllowedTaskType = typeof ALLOWED_TASK_TYPES[number];
+
+// ثوابت للصيانة وقابلية القراءة
+const SUPERVISOR_DEFAULT_CONFIDENCE = 0.9;
+const TOKENS_PER_100MS_SUPERVISOR = 60;
+const COST_PER_MS_SUPERVISOR = 0.000015;
+const SCENE_HEADER_PATTERN = /مشهد\s+\d+/gi;
+
+// ثوابت خاصة بالوكلاء الأخرى
+const EMOTIONAL_DEFAULT_CONFIDENCE = 0.9;
+const TOKENS_PER_100MS_EMOTIONAL = 50;
+const COST_PER_MS_EMOTIONAL = 0.00001;
+
+const TECHNICAL_DEFAULT_CONFIDENCE = 0.95;
+const TOKENS_PER_100MS_TECHNICAL = 75;
+const COST_PER_MS_TECHNICAL = 0.000012;
+
+/**
+ * التحقق من صحة نوع المهمة - CWE-94 Prevention
+ */
+function isValidTaskType(taskType: string): taskType is AllowedTaskType {
+  return ALLOWED_TASK_TYPES.includes(taskType as AllowedTaskType);
+}
+
+/**
+ * تعقيم محتوى السيناريو لمنع حقن الكود - CWE-94 Prevention
+ */
+function sanitizeScriptContent(content: string): string {
+  if (typeof content !== 'string') {
+    return '';
+  }
+  // إزالة أنماط الكود الخطرة
+  return content
+    // إزالة script tags
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    // إزالة event handlers
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    // إزالة javascript: URLs
+    .replace(/javascript\s*:/gi, '')
+    // إزالة data: URLs الخطرة
+    .replace(/data\s*:\s*text\/html/gi, '')
+    // إزالة eval وأخواته
+    .replace(/\b(eval|Function|setTimeout|setInterval)\s*\(/gi, '[blocked](')
+    // تحويل backticks لمنع template literals
+    .replace(/`/g, "'");
+}
+
+/**
+ * التحقق من صحة معرف المهمة
+ */
+function sanitizeTaskId(taskId: string): string {
+  if (typeof taskId !== 'string') return '';
+  // السماح فقط بالأحرف والأرقام والشرطات والشرطات السفلية
+  return taskId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 100);
+}
+
+/**
+ * تعقيم مدخلات السجلات - CWE-117 Prevention
+ */
+function sanitizeLogInput(input: unknown): string {
+  if (typeof input !== 'string') return String(input);
+  return input
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 500);
+}
+
+/**
+ * تعقيم كائن السياق (context) بشكل آمن - CWE-94 Prevention
+ */
+function sanitizeContext(context: unknown): Record<string, unknown> | undefined {
+  if (!context || typeof context !== 'object') {
+    return undefined;
+  }
+
+  // تحويل الكائن إلى JSON وإعادة تحليله لإزالة أي references خطرة
+  try {
+    const jsonString = JSON.stringify(context, (_key, value) => {
+      // إزالة الدوال
+      if (typeof value === 'function') return undefined;
+      // تعقيم النصوص
+      if (typeof value === 'string') {
+        return sanitizeScriptContent(value);
+      }
+      return value;
+    });
+    return JSON.parse(jsonString);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * التحقق الشامل من المهمة السينمائية
+ */
+function validateAndSanitizeTask(task: CinematicTask): {
+  valid: boolean;
+  error?: string;
+  sanitizedTask?: CinematicTask
+} {
+  // التحقق من وجود الكائن
+  if (!task || typeof task !== 'object') {
+    return { valid: false, error: 'المهمة غير صالحة: يجب أن تكون كائن' };
+  }
+
+  // التحقق من task_type مع القائمة البيضاء
+  if (!isValidTaskType(task.task_type)) {
+    return {
+      valid: false,
+      error: `نوع المهمة غير مدعوم: ${String(task.task_type).substring(0, 50)}. الأنواع المسموحة: ${ALLOWED_TASK_TYPES.join(', ')}`
+    };
+  }
+
+  // التحقق من script_content
+  if (typeof task.script_content !== 'string') {
+    return { valid: false, error: 'script_content مطلوب ويجب أن يكون نص' };
+  }
+
+  // إنشاء المهمة المعقمة
+  const sanitizedTask: CinematicTask = {
+    task_id: sanitizeTaskId(task.task_id),
+    task_type: task.task_type, // تم التحقق منه أعلاه
+    script_content: sanitizeScriptContent(task.script_content),
+    requirements: {
+      complexity: ['low', 'medium', 'high', 'critical'].includes(task.requirements?.complexity)
+        ? task.requirements.complexity
+        : 'medium',
+      max_response_time: Math.max(0, Math.min(Number(task.requirements?.max_response_time) || 30000, 300000)),
+      quality_threshold: Math.max(0, Math.min(Number(task.requirements?.quality_threshold) || 0.7, 1)),
+      include_python_service: Boolean(task.requirements?.include_python_service)
+    },
+    // CWE-94 Prevention: تعقيم السياق لمنع حقن الكود
+    context: sanitizeContext(task.context) as CinematicTask['context']
+  };
+
+  return { valid: true, sanitizedTask };
+}
+
 export interface CinematicTask {
   task_id: string;
   task_type: 'emotional_analysis' | 'technical_validation' | 'breakdown_extraction' | 'full_analysis' | 'supervision';
@@ -127,36 +271,58 @@ export class CinematicMultiAgentSystem {
     const startTime = Date.now();
     const agentsUsed: string[] = [];
     const agentResults: AgentExecutionResult[] = [];
-    
-    console.log(`🎯 بدء معالجة مهمة سينمائية: ${task.task_type}`);
-    console.log(`📝 طول النص: ${task.script_content.length} حرف`);
-    
+
+    // CWE-94 Prevention: التحقق من صحة وتعقيم المدخلات قبل المعالجة
+    const validation = validateAndSanitizeTask(task);
+    if (!validation.valid || !validation.sanitizedTask) {
+      console.error(`❌ رفض المهمة: ${sanitizeLogInput(validation.error)}`);
+      return {
+        task_id: sanitizeTaskId(task.task_id) || 'invalid',
+        success: false,
+        result: { error: validation.error },
+        execution_summary: {
+          total_time: Date.now() - startTime,
+          agents_used: [],
+          quality_score: 0,
+          cost_estimate: 0
+        },
+        agent_results: []
+      };
+    }
+
+    // استخدام المهمة المعقمة بدلاً من الأصلية
+    const sanitizedTask = validation.sanitizedTask;
+
+    console.log(`🎯 بدء معالجة مهمة سينمائية: ${sanitizeLogInput(sanitizedTask.task_type)}`);
+    console.log(`📝 طول النص: ${sanitizeLogInput(sanitizedTask.script_content.length)} حرف`);
+
     try {
       let finalResult: any;
-      
-      switch (task.task_type) {
+
+      // CWE-94: استخدام المهمة المعقمة في switch
+      switch (sanitizedTask.task_type) {
         case 'emotional_analysis':
-          finalResult = await this.executeEmotionalAnalysis(task, agentsUsed, agentResults);
+          finalResult = await this.executeEmotionalAnalysis(sanitizedTask, agentsUsed, agentResults);
           break;
-          
+
         case 'technical_validation':
-          finalResult = await this.executeTechnicalValidation(task, agentsUsed, agentResults);
+          finalResult = await this.executeTechnicalValidation(sanitizedTask, agentsUsed, agentResults);
           break;
-          
+
         case 'breakdown_extraction':
-          finalResult = await this.executeBreakdownExtraction(task, agentsUsed, agentResults);
+          finalResult = await this.executeBreakdownExtraction(sanitizedTask, agentsUsed, agentResults);
           break;
-          
+
         case 'full_analysis':
-          finalResult = await this.executeFullAnalysis(task, agentsUsed, agentResults);
+          finalResult = await this.executeFullAnalysis(sanitizedTask, agentsUsed, agentResults);
           break;
-          
+
         case 'supervision':
-          finalResult = await this.executeSupervision(task, agentsUsed, agentResults);
+          finalResult = await this.executeSupervision(sanitizedTask, agentsUsed, agentResults);
           break;
-          
+
         default:
-          throw new Error(`نوع مهمة غير مدعوم: ${task.task_type}`);
+          throw new Error(`نوع مهمة غير مدعوم: ${sanitizeLogInput(sanitizedTask.task_type)}`);
       }
       
       const totalTime = Date.now() - startTime;
@@ -168,14 +334,14 @@ export class CinematicMultiAgentSystem {
       const costEstimate = this.calculateCostEstimate(agentResults);
       
       // تسجيل المهمة في التاريخ
-      this.recordTaskCompletion(task.task_id, true, agentsUsed, finalResult);
-      
+      this.recordTaskCompletion(sanitizedTask.task_id, true, agentsUsed, finalResult);
+
       console.log(`✅ اكتملت المهمة في ${totalTime}ms`);
       console.log(`📊 نقاط الجودة: ${qualityScore.toFixed(2)}`);
       console.log(`💰 التكلفة المقدرة: $${costEstimate.toFixed(4)}`);
-      
+
       return {
-        task_id: task.task_id,
+        task_id: sanitizedTask.task_id,
         success: true,
         result: finalResult,
         execution_summary: {
@@ -186,17 +352,17 @@ export class CinematicMultiAgentSystem {
         },
         agent_results: agentResults
       };
-      
+
     } catch (error) {
       const totalTime = Date.now() - startTime;
-      
-      console.error(`❌ فشلت المهمة: ${(error as Error).message}`);
-      
+
+      console.error(`❌ فشلت المهمة: ${sanitizeLogInput((error as Error).message)}`);
+
       // تسجيل الفشل
-      this.recordTaskCompletion(task.task_id, false, agentsUsed);
-      
+      this.recordTaskCompletion(sanitizedTask.task_id, false, agentsUsed);
+
       return {
-        task_id: task.task_id,
+        task_id: sanitizedTask.task_id,
         success: false,
         result: { error: (error as Error).message },
         execution_summary: {
@@ -231,11 +397,11 @@ export class CinematicMultiAgentSystem {
         success: true,
         result,
         execution_time: executionTime,
-        confidence: 0.9,
+        confidence: EMOTIONAL_DEFAULT_CONFIDENCE,
         metadata: {
           model_used: 'claude-4-sonnet',
-          tokens_used: Math.floor(executionTime / 100) * 50,
-          cost: executionTime * 0.00001
+          tokens_used: Math.floor(executionTime / 100) * TOKENS_PER_100MS_EMOTIONAL,
+          cost: executionTime * COST_PER_MS_EMOTIONAL
         }
       });
       
@@ -248,7 +414,7 @@ export class CinematicMultiAgentSystem {
         agent_name: 'emotional_agent',
         task_type: 'emotional_analysis',
         success: false,
-        result: { error: error.message },
+        result: { error: (error as Error).message },
         execution_time: executionTime,
         confidence: 0,
         metadata: {
@@ -271,8 +437,8 @@ export class CinematicMultiAgentSystem {
     
     try {
       console.log("🔧 تنفيذ التحقق التقني...");
-      
-      const result = await this.emotionalAgent.analyzeNarrative(task.script_content);
+
+      const result = await this.technicalAgent.validateFormatting(task.script_content);
       
       const executionTime = Date.now() - startTime;
       agentsUsed.push('technical_agent');
@@ -283,11 +449,11 @@ export class CinematicMultiAgentSystem {
         success: true,
         result,
         execution_time: executionTime,
-        confidence: 0.95,
+        confidence: TECHNICAL_DEFAULT_CONFIDENCE,
         metadata: {
           model_used: 'claude-4-sonnet',
-          tokens_used: Math.floor(executionTime / 100) * 75,
-          cost: executionTime * 0.000012
+          tokens_used: Math.floor(executionTime / 100) * TOKENS_PER_100MS_TECHNICAL,
+          cost: executionTime * COST_PER_MS_TECHNICAL
         }
       });
       
@@ -323,8 +489,8 @@ export class CinematicMultiAgentSystem {
     
     try {
       console.log("📋 تنفيذ استخراج عناصر الإنتاج...");
-      
-      const result = await this.breakdownAgent.extractElements(task.script_content);
+
+      const result = await this.breakdownAgent.extractElements(task.script_content, task.task_id);
       
       const executionTime = Date.now() - startTime;
       agentsUsed.push('breakdown_agent');
@@ -372,29 +538,45 @@ export class CinematicMultiAgentSystem {
     agentResults: AgentExecutionResult[]
   ): Promise<FinalBreakdownReport> {
     console.log("🎯 تنفيذ التحليل الشامل...");
+
+    // CWE-94 Prevention: التحقق من التعقيم حتى لو تم مسبقاً (Defense in Depth)
+    const validation = validateAndSanitizeTask(task);
+    if (!validation.valid || !validation.sanitizedTask) {
+      throw new Error(`فشل التحقق من صحة المهمة: ${validation.error}`);
+    }
+    const safeTask = validation.sanitizedTask;
+
+    // تنفيذ المراحل بالتسلسل مع المدخلات المعقمة
+    const emotionalAnalysis = await this.executeEmotionalAnalysis(safeTask, agentsUsed, agentResults);
+    const technicalValidation = await this.executeTechnicalValidation(safeTask, agentsUsed, agentResults);
+    const breakdownResults = await this.executeBreakdownExtraction(safeTask, agentsUsed, agentResults);
     
-    // تنفيذ المراحل بالتسلسل
-    const emotionalAnalysis = await this.executeEmotionalAnalysis(task, agentsUsed, agentResults);
-    const technicalValidation = await this.executeTechnicalValidation(task, agentsUsed, agentResults);
-    const breakdownResults = await this.executeBreakdownExtraction(task, agentsUsed, agentResults);
-    
-    // تنفيذ الإشراف
+    // تنفيذ الإشراف - CWE-94 Prevention: تعقيم السياق قبل التمرير
+    const rawContext = {
+      emotional_analysis: emotionalAnalysis,
+      technical_validation: technicalValidation,
+      breakdown_results: breakdownResults,
+      confidence_threshold: 0.7,
+      human_review_threshold: 0.8
+    };
+
+    // تعقيم السياق لمنع حقن الكود
+    const sanitizedContextRaw = sanitizeContext(rawContext);
+    if (!sanitizedContextRaw) {
+      throw new Error('فشل في تعقيم سياق الإشراف');
+    }
+    const sanitizedContext = sanitizedContextRaw as unknown as SupervisionContext;
+
     const supervisionResult = await this.executeSupervisionWithContext(
-      {
-        emotional_analysis: emotionalAnalysis,
-        technical_validation: technicalValidation,
-        breakdown_results: breakdownResults,
-        confidence_threshold: 0.7,
-        human_review_threshold: 0.8
-      },
+      sanitizedContext,
       agentsUsed,
       agentResults
     );
     
-    // إنشاء التقرير النهائي
+    // إنشاء التقرير النهائي - استخدام البيانات المعقمة فقط
     const finalReport: FinalBreakdownReport = {
       script_title: "سيناريو بدون عنوان",
-      total_scenes: this.countScenes(task.script_content),
+      total_scenes: this.countScenes(safeTask.script_content),
       processing_timestamp: new Date(),
       emotional_analysis: emotionalAnalysis,
       technical_validation: technicalValidation,
@@ -442,7 +624,7 @@ export class CinematicMultiAgentSystem {
           scene_id: "scene_1",
           elements: [],
           breakdown_sheets: [],
-          summary: { total_elements: 0, by_category: {}, complexity_score: 0.5 }
+          summary: { total_elements: 0, by_category: {} as any, complexity_score: 0.5 }
         }],
         confidence_threshold: 0.7,
         human_review_threshold: 0.8
@@ -459,11 +641,11 @@ export class CinematicMultiAgentSystem {
         success: true,
         result,
         execution_time: executionTime,
-        confidence: 0.9,
+        confidence: SUPERVISOR_DEFAULT_CONFIDENCE,
         metadata: {
           model_used: 'claude-4-sonnet',
-          tokens_used: Math.floor(executionTime / 100) * 60,
-          cost: executionTime * 0.000015
+          tokens_used: Math.floor(executionTime / 100) * TOKENS_PER_100MS_SUPERVISOR,
+          cost: executionTime * COST_PER_MS_SUPERVISOR
         }
       });
       
@@ -476,7 +658,7 @@ export class CinematicMultiAgentSystem {
         agent_name: 'supervisor_agent',
         task_type: 'supervision',
         success: false,
-        result: { error: error.message },
+        result: { error: (error as Error).message },
         execution_time: executionTime,
         confidence: 0,
         metadata: {
@@ -526,7 +708,7 @@ export class CinematicMultiAgentSystem {
         agent_name: 'supervisor_agent',
         task_type: 'supervision',
         success: false,
-        result: { error: error.message },
+        result: { error: (error as Error).message },
         execution_time: executionTime,
         confidence: 0,
         metadata: {
@@ -555,11 +737,33 @@ export class CinematicMultiAgentSystem {
   }
 
   private countScenes(scriptContent: string): number {
-    const sceneMatches = scriptContent.match(/مشهد\s+\d+/gi);
+    const sceneMatches = scriptContent.match(SCENE_HEADER_PATTERN);
     return sceneMatches ? sceneMatches.length : 1;
   }
 
+  /**
+   * تعقيم القيم لعرضها في HTML - CWE-79/80 Prevention
+   */
+  private escapeHtml(value: unknown): string {
+    const str = String(value ?? '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+  }
+
   private generateHtmlReport(supervisionResult: any): string {
+    // CWE-94/79 Prevention: التحقق من صحة البيانات وتعقيمها قبل إدراجها في HTML
+    const confidence = Number(supervisionResult?.quality_assessment?.overall_confidence);
+    const safeConfidence = isNaN(confidence) ? 0 : Math.max(0, Math.min(100, confidence * 100));
+
+    const humanReviewRequired = Boolean(supervisionResult?.quality_assessment?.human_review_required);
+
+    const elementsLength = Number(supervisionResult?.final_elements?.length);
+    const safeElementsCount = isNaN(elementsLength) ? 0 : Math.max(0, elementsLength);
+
     return `
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
@@ -580,12 +784,12 @@ export class CinematicMultiAgentSystem {
         </div>
         <div class="section">
             <h2>ملخص الجودة</h2>
-            <p>الثقة العامة: ${(supervisionResult.quality_assessment.overall_confidence * 100).toFixed(1)}%</p>
-            <p>مراجعة بشرية مطلوبة: ${supervisionResult.quality_assessment.human_review_required ? 'نعم' : 'لا'}</p>
+            <p>الثقة العامة: ${this.escapeHtml(safeConfidence.toFixed(1))}%</p>
+            <p>مراجعة بشرية مطلوبة: ${humanReviewRequired ? 'نعم' : 'لا'}</p>
         </div>
         <div class="section">
             <h2>العناصر المستخرجة</h2>
-            <p>عدد العناصر: ${supervisionResult.final_elements.length}</p>
+            <p>عدد العناصر: ${this.escapeHtml(safeElementsCount)}</p>
         </div>
     </body>
     </html>
@@ -677,7 +881,7 @@ export class CinematicMultiAgentSystem {
     recommendations: string[];
   }> {
     const components = {
-      model_manager: this.modelManager.getAvailableModels().length > 0,
+      model_manager: this.modelManager.getModelHealth().length > 0,
       python_service: true, // يمكن إضافة فحص حقيقي هنا
       emotional_agent: true,
       technical_agent: true,

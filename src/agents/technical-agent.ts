@@ -14,6 +14,31 @@ import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { PythonBrainService } from '../three-read-breakdown-system.js';
 
+/**
+ * تنظيف مدخلات السجلات لمنع Log Injection (CWE-117)
+ */
+function sanitizeLogInput(input: string | number): string {
+  if (typeof input === 'number') return String(input);
+  if (typeof input !== 'string') return String(input);
+  return input
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 500);
+}
+
+/**
+ * تنظيف النص من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
+ */
+function escapeHtml(text: string): string {
+  if (typeof text !== 'string') return String(text);
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // نماذج البيانات
 // ═══════════════════════════════════════════════════════════════════════════
@@ -224,9 +249,9 @@ export class TechnicalReadingAgent {
       finalValidation.processing_metadata.processing_time = processingTime;
       
       console.log("✅ تم إكمال الفحص التقني");
-      console.log(`   📊 النتيجة الإجمالية: ${(finalValidation.overall_score * 100).toFixed(1)}%`);
-      console.log(`   ❌ الأخطاء: ${finalValidation.errors.length}`);
-      console.log(`   ⚠️ التحذيرات: ${finalValidation.warnings.length}`);
+      console.log(`   📊 النتيجة الإجمالية: ${sanitizeLogInput((finalValidation.overall_score * 100).toFixed(1))}%`);
+      console.log(`   ❌ الأخطاء: ${sanitizeLogInput(finalValidation.errors.length)}`);
+      console.log(`   ⚠️ التحذيرات: ${sanitizeLogInput(finalValidation.warnings.length)}`);
       
       return finalValidation;
       
@@ -567,7 +592,8 @@ export class TechnicalReadingAgent {
 
   private extractAllCharacters(scriptText: string): string[] {
     const matches = scriptText.match(this.CHARACTER_PATTERN) || [];
-    const characters = matches.map(match => match.replace(':', '').trim());
+    // تنظيف الأسماء من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
+    const characters = matches.map(match => escapeHtml(match.replace(':', '').trim()));
     return Array.from(new Set(characters));
   }
 
@@ -802,11 +828,13 @@ export class TechnicalReadingAgent {
       
       while ((match = corruptedChars.exec(line)) !== null) {
         const lineStart = scriptText.indexOf(line);
+        // تنظيف النص العينة لمنع حقن الأكواد (CWE-94)
+        const sampleText = escapeHtml(line.substring(Math.max(0, match.index - 10), match.index + 10));
         issues.push({
           line_number: i + 1,
           span_start: lineStart + match.index,
           span_end: lineStart + match.index + match[0].length,
-          sample_text: line.substring(Math.max(0, match.index - 10), match.index + 10)
+          sample_text: sampleText
         });
       }
     }
@@ -865,11 +893,13 @@ export class TechnicalReadingAgent {
       
       while ((match = malformedPattern.exec(line)) !== null) {
         const lineStart = scriptText.indexOf(line);
+        // تنظيف النص العينة لمنع حقن الأكواد (CWE-94)
+        const sampleText = escapeHtml(line.substring(Math.max(0, match.index - 10), match.index + 20));
         issues.push({
           line_number: i + 1,
           span_start: lineStart + match.index,
           span_end: lineStart + match.index + match[0].length,
-          sample_text: line.substring(Math.max(0, match.index - 10), match.index + 20)
+          sample_text: sampleText
         });
       }
     }
@@ -932,13 +962,14 @@ export class TechnicalReadingAgent {
   }
 
   private mergeValidationResults(
+    basicValidation: any,
     sceneHeaders: SceneHeaderValidation[],
     characterConsistency: CharacterConsistency[],
     locationConsistency: LocationConsistency[],
     corruptionReport: CorruptionReport,
     enhancedValidation: any
   ): FormatValidation {
-    
+
     const errors = [...(basicValidation.errors || [])];
     const warnings = [...(basicValidation.warnings || [])];
     const suggestions = [...(basicValidation.suggestions || [])];

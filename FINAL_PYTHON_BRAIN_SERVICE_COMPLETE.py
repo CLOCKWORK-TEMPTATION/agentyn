@@ -485,4 +485,16 @@ class FinalAnalysisService:
         analysis = {
             "scene_id": scene["id"],
             "scene_index": index,
-            "
+            "iteration": iteration,
+            "context_enabled": enable_context
+        }
+        
+        # إضافة تحليل إضافي بناءً على السياق
+        if enable_context and context:
+            analysis["context_analysis"] = {
+                "complexity_factor": context.get("complexity_factor", 1.0),
+                "focus_areas": context.get("focus_areas", []),
+                "special_requirements": context.get("special_requirements", [])
+            }
+        
+        return analysis

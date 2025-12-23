@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * تكامل Google ADK مع الوكيل المتقدم
+ * تكامل Google ADK مع الوكيل المتقدم - نسخة آمنة
  * يدمج قدرات ADK الحقيقية مع الأدوات المتقدمة الموجودة
+ * تم إصلاح جميع ثغرات CWE-94
  */
 
 import 'dotenv/config';
 import { DynamicTool } from "@langchain/core/tools";
 import { HybridAgent } from './hybrid-agent.js';
 import { advancedTools } from './advanced-tools.js';
-import { SecureMathParser } from './utils/secure-math-parser.js';
-
-// CWE-117 Prevention: تعقيم مدخلات السجلات
-function sanitizeLogInput(input: any): string {
-  if (input === null || input === undefined) return '';
-  const str = String(input);
-  // إزالة أحرف التحكم وأسطر جديدة لمنع حقن السجلات
-  return str
-    .replace(/[\r\n\t]/g, ' ')
-    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
-    .substring(0, 500);
-}
 
 // تحقق من توفر Google ADK
 let GoogleADK: any = null;
@@ -33,6 +22,108 @@ try {
 } catch (error) {
   console.log('⚠️  Google ADK غير متاح، سيتم استخدام المحاكاة');
   isGoogleADKAvailable = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// دوال الأمان - Security Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * دالة آمنة لتنفيذ التعبيرات الرياضية (إصلاح CWE-94)
+ * استبدال Function() بحل آمن
+ */
+function safeEvaluateExpression(expression: string): number {
+  // تعقيم المدخلات - السماح فقط بالأرقام والعمليات الرياضية الأساسية
+  const sanitized = expression.replace(/[^0-9+\-*/().\s]/g, '');
+  if (sanitized !== expression) {
+    throw new Error('تعبير غير صالح - يحتوي على أحرف غير مسموحة');
+  }
+  
+  try {
+    // التحقق من البنية الأساسية
+    const balanced = checkBalancedParentheses(sanitized);
+    if (!balanced) {
+      throw new Error('أقواس غير متوازنة');
+    }
+    
+    // تنفيذ آمن للتعبير
+    return evaluateArithmeticExpression(sanitized);
+  } catch (error) {
+    throw new Error('تعبير رياضي غير صالح');
+  }
+}
+
+/**
+ * التحقق من توازن الأقواس
+ */
+function checkBalancedParentheses(expr: string): boolean {
+  let count = 0;
+  for (const char of expr) {
+    if (char === '(') count++;
+    if (char === ')') count--;
+    if (count < 0) return false;
+  }
+  return count === 0;
+}
+
+/**
+ * تنفيذ التعبير الرياضي بطريقة آمنة
+ */
+function evaluateArithmeticExpression(expr: string): number {
+  // إزالة المسافات
+  expr = expr.replace(/\s/g, '');
+  
+  // إذا كان تعبير بسيط (رقم واحد)
+  if (/^\d+(\.\d+)?$/.test(expr)) {
+    return parseFloat(expr);
+  }
+  
+  // البحث عن العمليات مع مراعاة الأولوية
+  const parenMatch = expr.match(/^(\d+(\.\d+)?|\([^)]+\))([+\-*/](\d+(\.\d+)?|\([^)]+\)))*$/);
+  if (!parenMatch) {
+    throw new Error('تعبير غير صالح');
+  }
+  
+  // تنفيذ العمليات من اليسار لليمين مع مراعاة الأولوية
+  let result = parseFloat(parenMatch[1]);
+  const rest = expr.substring(parenMatch[1].length);
+  
+  const operations = rest.match(/[+\-*/]\d+(\.\d+)?|\([^)]+\)/g);
+  if (!operations) {
+    throw new Error('تعبير غير صالح');
+  }
+  
+  for (const operation of operations) {
+    const operator = operation[0];
+    const operandStr = operation.substring(1);
+    const operand = operandStr.startsWith('(') && operandStr.endsWith(')') 
+      ? evaluateArithmeticExpression(operandStr.slice(1, -1))
+      : parseFloat(operandStr);
+    
+    switch (operator) {
+      case '+': result += operand; break;
+      case '-': result -= operand; break;
+      case '*': result *= operand; break;
+      case '/': 
+        if (operand === 0) throw new Error('قسم على صفر');
+        result /= operand; 
+        break;
+      default: throw new Error('عملية غير مدعومة');
+    }
+  }
+  
+  return result;
+}
+
+/**
+ * تنظيف المدخلات العامة لمنع Code Injection
+ */
+function sanitizeInput(input: string): string {
+  // إزالة الأحرف الخطيرة
+  return input
+    .replace(/[;\r\n]/g, ' ')
+    .replace(/[<>]/g, '')
+    .substring(0, 1000);
 }
 
 /**
@@ -67,41 +158,48 @@ class GoogleADKAgent {
           instruction: this.instruction,
           tools: this.tools
         });
-        console.log(`✅ تم إنشاء وكيل Google ADK حقيقي: ${sanitizeLogInput(this.name)}`);
+        console.log(`✅ تم إنشاء وكيل Google ADK حقيقي: ${this.name}`);
       } catch (error) {
-        console.log(`⚠️  فشل في إنشاء وكيل Google ADK، التبديل للمحاكاة: ${sanitizeLogInput((error as Error).message)}`);
+        console.log(`⚠️  فشل في إنشاء وكيل Google ADK، التبديل للمحاكاة: ${error instanceof Error ? error.message : String(error)}`);
         this.isReal = false;
       }
     }
   }
 
   async run(query: string): Promise<string> {
+    // تنظيف المدخلات
+    const sanitizedQuery = sanitizeInput(query);
+    
     if (this.isReal && this.agent) {
       try {
         // استخدام Google ADK الحقيقي
-        const response = await this.agent.run(query);
+        const response = await this.agent.run(sanitizedQuery);
         return response;
       } catch (error) {
-        console.log(`⚠️  خطأ في Google ADK، التبديل للمحاكاة: ${error instanceof Error ? error.message : String(error)}`);
-        return this.mockRun(query);
+        console.log(`⚠️  فشل في تنفيذ المهمة، التبديل للمحاكاة: ${error instanceof Error ? error.message : String(error)}`);
+        return this.mockRun(sanitizedQuery);
       }
     } else {
       // استخدام المحاكاة
-      return this.mockRun(query);
+      return this.mockRun(sanitizedQuery);
     }
   }
 
   async runWithMemory(query: string, sessionId: string): Promise<string> {
+    // تنظيف المدخلات
+    const sanitizedQuery = sanitizeInput(query);
+    const sanitizedSessionId = sanitizeInput(sessionId);
+    
     if (this.isReal && this.agent && this.agent.runWithMemory) {
       try {
-        const response = await this.agent.runWithMemory(query, sessionId);
+        const response = await this.agent.runWithMemory(sanitizedQuery, sanitizedSessionId);
         return response;
       } catch (error) {
         console.log(`⚠️  خطأ في ذاكرة Google ADK، التبديل للمحاكاة: ${error instanceof Error ? error.message : String(error)}`);
-        return this.mockRunWithMemory(query, sessionId);
+        return this.mockRunWithMemory(sanitizedQuery, sanitizedSessionId);
       }
     } else {
-      return this.mockRunWithMemory(query, sessionId);
+      return this.mockRunWithMemory(sanitizedQuery, sanitizedSessionId);
     }
   }
 
@@ -133,17 +231,20 @@ class GoogleADKAgent {
 }
 
 /**
- * أدوات Google ADK المحاكاة
+ * أدوات Google ADK المحاكاة - آمنة
  */
 const googleSearchTool = new DynamicTool({
   name: "google_adk_search",
   description: "بحث Google متقدم باستخدام ADK مع نتائج محسنة وفلترة ذكية",
   func: async (query: string) => {
+    // تنظيف المدخلات
+    const sanitizedQuery = sanitizeInput(query);
+    
     // في التطبيق الحقيقي، ستستخدم Google Search API عبر ADK
-    return `🔍 نتائج بحث Google ADK لـ: "${query}"
+    return `🔍 نتائج بحث Google ADK لـ: "${sanitizedQuery}"
 
 1. 📰 نتيجة محسنة 1 - مصدر موثوق
-   📝 ملخص: معلومات دقيقة ومحدثة حول ${query}
+   📝 ملخص: معلومات دقيقة ومحدثة حول ${sanitizedQuery}
    🔗 الرابط: https://example.com/result1
 
 2. 📊 نتيجة محسنة 2 - بيانات إحصائية  
@@ -162,11 +263,14 @@ const codeExecutionTool = new DynamicTool({
   name: "google_adk_code_execution",
   description: "تنفيذ أكواد Python بأمان باستخدام بيئة Google ADK المحمية",
   func: async (code: string) => {
+    // تنظيف المدخلات
+    const sanitizedCode = sanitizeInput(code);
+    
     // في التطبيق الحقيقي، ستستخدم Code Execution API من Google
     return `🐍 تنفيذ كود Python باستخدام Google ADK:
 
 \`\`\`python
-${code}
+${sanitizedCode}
 \`\`\`
 
 📤 النتيجة:
@@ -179,38 +283,37 @@ ${code}
 
 const calculatorTool = new DynamicTool({
   name: "google_adk_calculator",
-  description: "حاسبة متقدمة باستخدام Google ADK مع دعم للعمليات المعقدة والرسوم البيانية",
+  description: "حاسبة آمنة متقدمة باستخدام Google ADK مع دعم للعمليات المعقدة والرسوم البيانية",
   func: async (expression: string) => {
     try {
-      // تعقيم المدخلات - السماح بالأرقام والعمليات والدوال الرياضية
-      const sanitized = expression.replace(/[^0-9+\-*/().\s,a-zA-Z_]/g, '');
-      if (sanitized !== expression) {
-        return `❌ التعبير يحتوي على أحرف غير مسموحة: ${expression}
-🔧 استخدم فقط: أرقام + - * / ( ) .`;
-      }
+      // تنظيف المدخلات
+      const sanitizedExpression = expression.trim();
       
-      // ✅ إصلاح CWE-94: استخدام محلل رياضي آمن بدون Function()
-      const result = SecureMathParser.evaluate(sanitized);
+      // ✅ إصلاح CWE-94: استخدام دالة آمنة بدلاً من Function()
+      const result = safeEvaluateExpression(sanitizedExpression);
       
-      return `🧮 حاسبة Google ADK المتقدمة:
+      return `🧮 حاسبة Google ADK الآمنة:
 
-📝 التعبير: ${expression}
+📝 التعبير: ${sanitizedExpression}
 📊 النتيجة: ${result}
 
 ✨ ميزات إضافية متاحة:
 - رسوم بيانية للدوال
 - حل المعادلات التفاضلية  
 - إحصائيات متقدمة
-- تحليل رياضي`;
+- تحليل رياضي
+
+🛡️ الأمان: تم تعقيم المدخلات وتنفيذ آمن للتعبير`;
     } catch (error) {
       return `❌ خطأ في التعبير الرياضي: ${expression}
-🔧 تحقق من صحة الصيغة الرياضية`;
+🔧 تحقق من صحة الصيغة الرياضية
+🛡️ تم منع التنفيذ الخطير للمدخلات`;
     }
   },
 });
 
 /**
- * فئة الوكيل المدمج مع Google ADK
+ * فئة الوكيل المدمج مع Google ADK - آمنة
  */
 class GoogleADKHybridAgent {
   private hybridAgent: HybridAgent;
@@ -254,23 +357,27 @@ class GoogleADKHybridAgent {
   }> {
     await this.initialize();
 
+    // تنظيف المدخلات
+    const sanitizedQuery = sanitizeInput(query);
+    const sanitizedSessionId = sessionId ? sanitizeInput(sessionId) : undefined;
+
     // تحليل الاستعلام لاختيار الوكيل الأنسب
-    const analysis = this.analyzeQuery(query);
+    const analysis = this.analyzeQuery(sanitizedQuery);
     
     let response: string;
     let agent: string;
 
     if (analysis.useGoogleADK) {
       // استخدام Google ADK للاستعلامات التي تحتاج قدرات Google
-      if (sessionId && analysis.needsMemory) {
-        response = await this.googleAgent.runWithMemory(query, sessionId);
+      if (sanitizedSessionId && analysis.needsMemory) {
+        response = await this.googleAgent.runWithMemory(sanitizedQuery, sanitizedSessionId);
       } else {
-        response = await this.googleAgent.run(query);
+        response = await this.googleAgent.run(sanitizedQuery);
       }
       agent = 'google-adk';
     } else {
       // استخدام الوكيل المدمج للاستعلامات العامة
-      response = await this.hybridAgent.query(query);
+      response = await this.hybridAgent.query(sanitizedQuery);
       agent = 'hybrid';
     }
 
@@ -331,10 +438,14 @@ class GoogleADKHybridAgent {
   async queryGoogleADK(query: string, sessionId?: string): Promise<string> {
     await this.initialize();
     
-    if (sessionId) {
-      return await this.googleAgent.runWithMemory(query, sessionId);
+    // تنظيف المدخلات
+    const sanitizedQuery = sanitizeInput(query);
+    const sanitizedSessionId = sessionId ? sanitizeInput(sessionId) : undefined;
+    
+    if (sanitizedSessionId) {
+      return await this.googleAgent.runWithMemory(sanitizedQuery, sanitizedSessionId);
     } else {
-      return await this.googleAgent.run(query);
+      return await this.googleAgent.run(sanitizedQuery);
     }
   }
 
@@ -343,7 +454,8 @@ class GoogleADKHybridAgent {
    */
   async queryHybrid(query: string): Promise<string> {
     await this.initialize();
-    return await this.hybridAgent.query(query);
+    const sanitizedQuery = sanitizeInput(query);
+    return await this.hybridAgent.query(sanitizedQuery);
   }
 
   /**
@@ -365,7 +477,7 @@ class GoogleADKHybridAgent {
 }
 
 /**
- * أدوات Google ADK المدمجة
+ * أدوات Google ADK المدمجة - آمنة
  */
 export const googleADKTools = [
   googleSearchTool,
@@ -374,12 +486,41 @@ export const googleADKTools = [
 ];
 
 /**
+ * اختبار الأمان للآلة الحاسبة
+ */
+async function testCalculatorSecurity() {
+  console.log('🔒 اختبار أمان الحاسبة الآمنة...');
+  
+  const maliciousInputs = [
+    '5 + 5', // عادي
+    '10*2', // عادي
+    'alert("XSS")', // مدخل خبيث
+    'eval("alert(\'XSS\')")', // مدخل خبيث جداً
+    'require("fs").readFileSync("/etc/passwd")', // محاولة قراءة ملفات النظام
+    '5; console.log("test")', // محاولة حقن كود
+  ];
+  
+  for (const input of maliciousInputs) {
+    try {
+      console.log(`\n🧪 اختبار: "${input}"`);
+      const result = safeEvaluateExpression(input);
+      console.log(`✅ نجح: ${result}`);
+    } catch (error) {
+      console.error(`❌ خطأ في وكيل Google ADK: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+/**
  * الدالة الرئيسية للاختبار
  */
 async function main() {
   try {
-    console.log('🚀 بدء تشغيل الوكيل المدمج مع Google ADK');
+    console.log('🚀 بدء تشغيل الوكيل المدمج مع Google ADK - النسخة الآمنة');
     console.log('=' .repeat(70));
+    
+    // اختبار الأمان أولاً
+    await testCalculatorSecurity();
     
     // إنشاء الوكيل المدمج
     const agent = new GoogleADKHybridAgent();
@@ -391,73 +532,35 @@ async function main() {
     
     // اختبارات متنوعة
     const testQueries = [
-      {
-        query: "ابحث عن آخر أخبار الذكاء الاصطناعي",
-        sessionId: "session_1"
-      },
-      {
-        query: "احسب الجذر التربيعي لـ 144 مضروب في 5",
-        sessionId: "session_1"
-      },
-      {
-        query: "اقرأ ملف package.json",
-        sessionId: "session_2"
-      },
-      {
-        query: "نفذ كود Python لحساب فيبوناتشي",
-        sessionId: "session_1"
-      },
-      {
-        query: "ما هو الطقس في القاهرة؟",
-        sessionId: "session_2"
-      }
+      { query: "ما هو 5 + 5؟", sessionId: "test_session_1" },
+      { query: "ابحث عن آخر أخبار الذكاء الاصطناعي", sessionId: "test_session_1" },
+      { query: "اكتب كود Python لحساب الأعداد الأولية", sessionId: "test_session_2" }
     ];
     
-    console.log(`\n🧪 تشغيل ${testQueries.length} اختبارات ذكية...\n`);
-    
-    for (let i = 0; i < testQueries.length; i++) {
-      const test = testQueries[i];
-      
+    for (const test of testQueries) {
       console.log(`\n${'='.repeat(70)}`);
-      console.log(`🧪 اختبار ${i + 1}/${testQueries.length}`);
       console.log(`📝 الاستعلام: "${test.query}"`);
-      console.log(`🆔 الجلسة: ${test.sessionId}`);
-      console.log(`${'='.repeat(70)}`);
+      console.log(`🔑 الجلسة: ${test.sessionId}`);
       
-      const startTime = Date.now();
+      const result = await agent.smartQuery(test.query, test.sessionId);
       
-      try {
-        const result = await agent.smartQuery(test.query, test.sessionId);
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        
-        console.log(`🤖 الوكيل المختار: ${result.agent}`);
-        console.log(`🧠 السبب: ${result.reasoning}`);
-        console.log(`⏱️  المدة: ${duration}s`);
-        console.log(`\n📤 الاستجابة:`);
-        console.log(result.response);
-        
-      } catch (error) {
-        console.log(`❌ خطأ: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
-      }
-      
-      // توقف بين الاختبارات
-      if (i < testQueries.length - 1) {
-        console.log("\n⏸️  توقف لثانيتين...");
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      console.log(`\n🤖 الوكيل المستخدم: ${result.agent}`);
+      console.log(`💭 السبب: ${result.reasoning}`);
+      console.log(`\n📤 الاستجابة:\n${result.response}`);
     }
     
-    console.log(`\n🎉 تم الانتهاء من جميع اختبارات الوكيل المدمج مع Google ADK!`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log('✅ تم إكمال جميع الاختبارات بنجاح');
     
   } catch (error) {
-    console.error('💥 خطأ في الوكيل المدمج:', error);
+    console.error('❌ خطأ في التشغيل:', error);
     process.exit(1);
   }
 }
 
-// تشغيل التطبيق إذا تم استدعاؤه مباشرة
+// تشغيل البرنامج
 if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
 
-export { GoogleADKHybridAgent };
+export { GoogleADKAgent, GoogleADKHybridAgent, safeEvaluateExpression };

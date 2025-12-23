@@ -7,6 +7,19 @@
 import 'dotenv/config';
 import { HybridAgent } from './hybrid-agent.js';
 
+/**
+ * تنظيف المدخلات لمنع حقن السجلات (CWE-117)
+ */
+function sanitizeLogInput(input: string): string {
+  if (typeof input !== 'string') {
+    return String(input);
+  }
+  return input
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .substring(0, 1000);
+}
+
 async function testAdvancedAgent() {
   try {
     console.log("🚀 بدء اختبار الوكيل المتقدم مع جميع الأدوات");
@@ -93,7 +106,7 @@ async function testAdvancedAgent() {
         const test = category.tests[i];
         totalTests++;
         
-        console.log(`\n🧪 اختبار ${totalTests}: ${test}`);
+        console.log(`\n🧪 اختبار ${totalTests}: ${sanitizeLogInput(test)}`);
         console.log("-".repeat(50));
         
         try {
@@ -103,11 +116,11 @@ async function testAdvancedAgent() {
           const duration = ((endTime - startTime) / 1000).toFixed(2);
           
           console.log(`✅ نجح الاختبار (${duration}s)`);
-          console.log(`📤 الاستجابة: ${response.substring(0, 200)}${response.length > 200 ? '...' : ''}`);
+          console.log(`📤 الاستجابة: ${sanitizeLogInput(response.substring(0, 200))}${response.length > 200 ? '...' : ''}`);
           successfulTests++;
           
         } catch (error) {
-          console.log(`❌ فشل الاختبار: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
+          console.log(`❌ فشل الاختبار: ${sanitizeLogInput(error instanceof Error ? error.message : 'خطأ غير معروف')}`);
         }
         
         // توقف قصير بين الاختبارات
@@ -151,7 +164,7 @@ async function testAdvancedAgent() {
       "⚡ Slash Command - الأوامر المختصرة"
     ];
     
-    toolsList.forEach(tool => console.log(`   ${tool}`));
+    toolsList.forEach(tool => console.log(`   ${sanitizeLogInput(tool)}`));
     
     console.log(`\n🎯 الوكيل المتقدم جاهز للاستخدام مع ${toolsList.length} أداة متقدمة!`);
     

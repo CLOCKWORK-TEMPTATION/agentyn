@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-خدمة Python المتقدمة للتفريغ السينمائي - النسخة النهائية المكتملة
-Advanced Python Brain Service for Three-Read Breakdown System - Final Complete Version
+خدمة Python المتقدمة للتفريغ السينمائي - النسخة النهائية المكتملة والصححة
+Advanced Python Brain Service for Three-Read Breakdown System - Final Complete Corrected Version
 
 يدعم جميع المتطلبات: 12.1-12.5, 13.1-13.5
 مع نظام مراقبة متقدم ومعالجة غير متزامنة وواجهة API شاملة
@@ -428,5 +428,21 @@ class AdvancedJobManager:
             memory_usage=memory_usage,
             memory_available=memory_available,
             active_jobs=len(self.active_jobs),
-            completed_jobs=len(self.completed_jobs)
+            completed_jobs=self.job_counts["completed"],
+            failed_jobs=self.job_counts["failed"],
+            pending_jobs=self.job_counts["pending"],
+            average_processing_time=avg_processing_time,
+            queue_length=len(self.job_queue),
+            uptime_seconds=uptime,
+            throughput_jobs_per_minute=throughput,
+            cache_hit_rate=cache_hit_rate,
+            timestamp=datetime.now()
         )
+        
+        return metrics
+    
+    def get_analytics_report(self) -> AnalyticsReport:
+        """إنشاء تقرير التحليلات الشامل"""
+        total_analyses = len(self.jobs)
+        
+        # إ

@@ -489,3 +489,5 @@ class EnhancedSceneSalienceService:
         
         # تطبيق السياق
         if enable_context and context:
+            context_multiplier = context.get("complexity_factor", 1.0)
+            total_score *= context_multiplier

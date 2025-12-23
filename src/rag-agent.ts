@@ -14,6 +14,13 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * تنظيف المدخلات من أحرف التحكم لمنع Log Injection
+ */
+function sanitizeForLog(input: string): string {
+  return input.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1F\x7F]/g, '');
+}
+
 // إعداد النماذج المتاحة
 const RAG_MODELS = {
   openai: {
@@ -57,7 +64,7 @@ class SimpleRAGAgent {
   private ensureDocumentsDirectory() {
     if (!fs.existsSync(this.documentsPath)) {
       fs.mkdirSync(this.documentsPath, { recursive: true });
-      console.log(`📁 تم إنشاء مجلد المستندات: ${this.documentsPath}`);
+      console.log(`📁 تم إنشاء مجلد المستندات: ${sanitizeForLog(this.documentsPath)}`);
       
       // إنشاء ملفات مثال
       this.createSampleDocuments();
@@ -169,7 +176,7 @@ C++:
     sampleDocs.forEach(doc => {
       const filePath = path.join(this.documentsPath, doc.filename);
       fs.writeFileSync(filePath, doc.content, 'utf8');
-      console.log(`📄 تم إنشاء مستند مثال: ${doc.filename}`);
+      console.log(`📄 تم إنشاء مستند مثال: ${sanitizeForLog(doc.filename)}`);
     });
   }
 
@@ -194,7 +201,7 @@ C++:
       }
       
       if (documents.length === 0) {
-        throw new Error(`لا توجد مستندات في المجلد: ${this.documentsPath}`);
+        throw new Error(`لا توجد مستندات في المجلد: ${sanitizeForLog(this.documentsPath)}`);
       }
       
       console.log(`📖 تم العثور على ${documents.length} مستند`);
@@ -222,7 +229,7 @@ C++:
     }
 
     try {
-      console.log(`🔍 البحث عن: "${question}"`);
+      console.log(`🔍 البحث عن: "${sanitizeForLog(question)}"`);
       
       const queryEngine = this.index.asQueryEngine({
         similarityTopK: 3, // أفضل 3 نتائج
@@ -245,11 +252,23 @@ C++:
    */
   async addDocument(filename: string, content: string) {
     try {
-      // حفظ المستند في مجلد المستندات
-      const filePath = path.join(this.documentsPath, filename);
-      fs.writeFileSync(filePath, content, 'utf8');
+      // الحماية من Path Traversal (CWE-22/23)
+      const sanitizedFilename = path.basename(filename);
+      if (sanitizedFilename !== filename || filename.includes('..')) {
+        throw new Error('اسم الملف غير آمن');
+      }
       
-      console.log(`📄 تم إضافة مستند جديد: ${filename}`);
+      const filePath = path.join(this.documentsPath, sanitizedFilename);
+      const resolvedPath = path.resolve(filePath);
+      const resolvedBase = path.resolve(this.documentsPath);
+      
+      if (!resolvedPath.startsWith(resolvedBase)) {
+        throw new Error('محاولة الوصول خارج مجلد المستندات');
+      }
+      
+      fs.writeFileSync(resolvedPath, content, 'utf8');
+      
+      console.log(`📄 تم إضافة مستند جديد: ${sanitizeForLog(filename)}`);
       
       // إعادة بناء الفهرس
       await this.loadDocuments();
@@ -324,7 +343,7 @@ async function main() {
       const duration = ((endTime - startTime) / 1000).toFixed(2);
       
       console.log(`\n✨ الإجابة:`);
-      console.log(response);
+      console.log(sanitizeForLog(response));
       console.log(`\n⏱️  وقت الاستعلام: ${duration} ثانية`);
       
       // توقف قصير بين الاستعلامات

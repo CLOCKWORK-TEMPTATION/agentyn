@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  python-brain-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: advanced-python-brain-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - MAX_CONCURRENT_JOBS=20
+      - CACHE_TTL=3600
+      - PERFORMANCE_THRESHOLD=1000
+      - LOG_LEVEL=INFO
+      - REVOLUTIONARY_ENGINE_URL=http://revolutionary-engine:9000
+      - ENABLE_INTEGRATION=true
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - redis
+      - database
+    networks:
+      - brain-service-network
+
+  revolutionary-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: revolutionary-engine
+    ports:
+      - "9000:9000"
+    environment:
+      - NODE_ENV=production
+      - PORT=9000
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+  database:
+    image: postgres:15-alpine
+    container_name: postgres-database
+    environment:
+      - POSTGRES_DB=brain_service
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=secure_password_2025
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - python-brain-service
+      - revolutionary-engine
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: prometheus-monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana-datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    networks:
+      - brain-service-network
+
+volumes:
+  redis_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  brain-service-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

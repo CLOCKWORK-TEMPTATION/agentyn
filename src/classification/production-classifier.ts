@@ -49,8 +49,8 @@ export const CLASSIFICATION_TAXONOMY: Record<ProductionCategory, ClassificationR
     exclusion_patterns: [/\b(رئيسي|مهم|يتحدث|حوار)\b/g],
     confidence_threshold: 0.7,
     priority: 2
-  }
-};
+  },
+
   [ProductionCategory.EXTRAS_FEATURED]: {
     category: ProductionCategory.EXTRAS_FEATURED,
     keywords: ["كومبارس مميز", "إضافي مهم", "شخصية ثانوية", "دور صغير"],

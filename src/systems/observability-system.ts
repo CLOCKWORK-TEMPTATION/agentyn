@@ -394,7 +394,7 @@ export class ObservabilitySystem {
     const currentMetrics = this.metricsHistory[this.metricsHistory.length - 1];
     if (!currentMetrics) return;
 
-    for (const [ruleId, rule] of this.alertRules) {
+    for (const [ruleId, rule] of Array.from(this.alertRules)) {
       if (!rule.enabled) continue;
 
       // فحص فترة التهدئة
@@ -499,7 +499,7 @@ export class ObservabilitySystem {
     for (const channel of channels) {
       switch (channel) {
         case 'console':
-          console.warn(`🚨 [${alert.severity.toUpperCase()}] ${alert.title}: ${alert.description}`);
+          console.warn(`🚨 [${this.sanitizeLogInput(alert.severity.toUpperCase())}] ${this.sanitizeLogInput(alert.title)}: ${this.sanitizeLogInput(alert.description)}`);
           break;
         
         case 'webhook':
@@ -620,12 +620,14 @@ export class ObservabilitySystem {
     }
 
     // طباعة السجلات المهمة
+    const sanitizedSource = this.sanitizeLogInput(source);
+    const sanitizedMessage = this.sanitizeLogInput(message);
     if (level === 'error' || level === 'critical') {
-      console.error(`[${level.toUpperCase()}] ${source}: ${message}`, metadata);
+      console.error(`[${level.toUpperCase()}] ${sanitizedSource}: ${sanitizedMessage}`, metadata);
     } else if (level === 'warning') {
-      console.warn(`[${level.toUpperCase()}] ${source}: ${message}`, metadata);
+      console.warn(`[${level.toUpperCase()}] ${sanitizedSource}: ${sanitizedMessage}`, metadata);
     } else if (level === 'info') {
-      console.log(`[${level.toUpperCase()}] ${source}: ${message}`, metadata);
+      console.log(`[${level.toUpperCase()}] ${sanitizedSource}: ${sanitizedMessage}`, metadata);
     }
   }
 
@@ -635,6 +637,21 @@ export class ObservabilitySystem {
 
   private generateSpanId(): string {
     return `span_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * تنظيف المدخلات لمنع حقن السجلات (CWE-117)
+   * يزيل أحرف التحكم والأسطر الجديدة
+   */
+  private sanitizeLogInput(input: string): string {
+    if (typeof input !== 'string') {
+      return String(input);
+    }
+    // إزالة أحرف السطر الجديد وأحرف التحكم
+    return input
+      .replace(/[\r\n]/g, ' ')
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .substring(0, 1000); // تحديد الطول الأقصى
   }
 
   /**
