@@ -20,17 +20,6 @@ import { sanitizeLogInput, createParameterizedQuery, generateCSRFToken, validate
 
 
 /**
- * تنظيف مدخلات السجلات لمنع Log Injection (CWE-117)
- */
-function sanitizeLogInput(input: string): string {
-  if (typeof input !== 'string') return String(input);
-  return input
-    .replace(/[\r\n]/g, ' ')
-    .replace(/[\x00-\x1F\x7F]/g, '')
-    .substring(0, 500);
-}
-
-/**
  * التحقق من صحة الاستعلام لمنع حقن SQL (CWE-89)
  */
 function validateQueryInput(query: string): { valid: boolean; sanitized: string; error?: string } {

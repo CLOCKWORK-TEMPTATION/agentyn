@@ -9,8 +9,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CinematicMultiAgentSystem } from '../systems/cinematic-multi-agent-system.js';
-import { CinematicTask } from '../systems/cinematic-multi-agent-system.js';
+import { CinematicMultiAgentSystem, CinematicTask, SanitizedCinematicTask } from '../systems/cinematic-multi-agent-system.js';
 
 // واجهة مبسطة للملف المرفوع
 interface UploadedFile {

@@ -156,7 +156,7 @@ export class ScriptParser {
         parsing_confidence: 0,
         parsing_errors: [{
           type: "format_error",
-          message: `فشل في قراءة الملف: ${error.message}`,
+          message: `فشل في قراءة الملف: ${error instanceof Error ? error.message : String(error)}`,
           severity: "critical"
         }],
         metadata: {
@@ -603,7 +603,14 @@ export class ScriptParser {
   // استخراج البيانات الوصفية
   // ═══════════════════════════════════════════════════════════════════════
 
-  private static extractMetadata(content: string, scenes: ParsedScene[], characters: string[]) {
+  private static extractMetadata(content: string, scenes: ParsedScene[], characters: string[]): {
+    total_lines: number;
+    total_characters: number;
+    estimated_pages: number;
+    language: "ar" | "en" | "mixed";
+    has_scene_numbers: boolean;
+    has_character_names: boolean;
+  } {
     const lines = content.split('\n');
     const arabicPattern = /[\u0600-\u06FF]/;
     const englishPattern = /[A-Za-z]/;
@@ -616,7 +623,7 @@ export class ScriptParser {
       if (englishPattern.test(char)) englishCount++;
     });
     
-    const language = arabicCount > englishCount ? "ar" : 
+    const language: "ar" | "en" | "mixed" = arabicCount > englishCount ? "ar" :
                     englishCount > arabicCount ? "en" : "mixed";
     
     return {

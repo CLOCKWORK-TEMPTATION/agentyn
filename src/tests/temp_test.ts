@@ -233,8 +233,66 @@ describe('Advanced Python Brain Service Property Tests', () => {
             }
           }
         }
-      }
-    ),
-    { numRuns: 5 }
-  );
+      ),
+      { numRuns: 5 }
+    );
+  });
+
+  it('should handle scene salience analysis correctly', async () => {
+    if (!serviceAvailable) return;
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          scenes: fc.array(
+            fc.record({
+              id: fc.string({ minLength: 1, maxLength: 20 }),
+              content: fc.string({ minLength: 10, maxLength: 500 }),
+              characters: fc.array(fc.string({ minLength: 1, maxLength: 20 }), { maxLength: 5 })
+            }),
+            { minLength: 1, maxLength: 10 }
+          ),
+          criteria: fc.record({
+            character_development: fc.float({ min: 0, max: 1 }),
+            plot_advancement: fc.float({ min: 0, max: 1 }),
+            emotional_impact: fc.float({ min: 0, max: 1 }),
+            visual_complexity: fc.float({ min: 0, max: 1 })
+          })
+        }),
+        async (request) => {
+          const abortController = new AbortController();
+          activeRequests.push(abortController);
+
+          try {
+            const response = await axios.post(`${SERVICE_URL}/scene-salience`, request, {
+              signal: abortController.signal,
+              timeout: 10000 // 10 ثوانٍ كحد أقصى
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.data).toHaveProperty('total_scenes', request.scenes.length);
+            expect(response.data).toHaveProperty('scene_analyses');
+            expect(response.data).toHaveProperty('summary');
+
+            // التحقق من أن كل مشهد له تحليل
+            expect(response.data.scene_analyses).toHaveLength(request.scenes.length);
+
+            response.data.scene_analyses.forEach((analysis: any, index: number) => {
+              expect(analysis).toHaveProperty('scene_index', index);
+              expect(analysis).toHaveProperty('importance_score');
+              expect(analysis.importance_score).toBeGreaterThanOrEqual(0);
+              expect(analysis.importance_score).toBeLessThanOrEqual(1);
+            });
+          } finally {
+            // إزالة الطلب من القائمة النشطة عند الانتهاء
+            const index = activeRequests.indexOf(abortController);
+            if (index > -1) {
+              activeRequests.splice(index, 1);
+            }
+          }
+        }
+      ),
+      { numRuns: 5 }
+    );
+  });
 });

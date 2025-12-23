@@ -14,19 +14,6 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { PythonBrainService } from '../three-read-breakdown-system.js';
 import { escapeHtml } from '../utils/security-helpers.js';
 
-/**
- * تنظيف النص من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
- */
-function escapeHtml(text: string): string {
-  if (typeof text !== 'string') return String(text);
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // نماذج البيانات
 // ═══════════════════════════════════════════════════════════════════════════

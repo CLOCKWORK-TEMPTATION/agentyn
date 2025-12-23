@@ -376,7 +376,7 @@ export class ModelManager {
       "supervision": "claude-4-sonnet"
     };
     
-    const preferredModel = Object.hasOwn(modelSelectionRules, taskType) 
+    const preferredModel = Object.prototype.hasOwnProperty.call(modelSelectionRules, taskType) 
       ? modelSelectionRules[taskType as keyof typeof modelSelectionRules] 
       : "claude-4-sonnet";
     

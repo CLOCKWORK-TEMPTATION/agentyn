@@ -44,6 +44,63 @@ const TECHNICAL_DEFAULT_CONFIDENCE = 0.95;
 const TOKENS_PER_100MS_TECHNICAL = 75;
 const COST_PER_MS_TECHNICAL = 0.000012;
 
+// ====================================
+// CWE-94 Prevention: Branded Type for Sanitized Tasks
+// ====================================
+
+/**
+ * علامة تحقق (Brand) للتأكد من أن المهمة تم تعقيمها
+ * هذا يمنع تمرير مهام غير معقمة إلى الدوال الداخلية على مستوى نظام الأنواع
+ */
+declare const SanitizedBrand: unique symbol;
+
+/**
+ * نوع المهمة المعقمة - يضمن على مستوى الأنواع أن البيانات آمنة
+ * CWE-94 Prevention: استخدام Branded Type لمنع تمرير بيانات غير معقمة
+ */
+export type SanitizedCinematicTask = {
+  readonly task_id: string;
+  readonly task_type: AllowedTaskType;
+  readonly script_content: string;
+  readonly requirements: {
+    readonly complexity: "low" | "medium" | "high" | "critical";
+    readonly max_response_time: number;
+    readonly quality_threshold: number;
+    readonly include_python_service: boolean;
+  };
+  readonly context?: {
+    readonly previous_results?: unknown;
+    readonly user_preferences?: unknown;
+    readonly production_context?: unknown;
+  };
+  readonly [SanitizedBrand]: true;
+};
+
+/**
+ * إنشاء مهمة معقمة مع علامة التحقق
+ * CWE-94 Prevention: هذه الدالة هي النقطة الوحيدة لإنشاء المهام المعقمة
+ */
+function createSanitizedTask(task: CinematicTask): SanitizedCinematicTask {
+  // التحقق النهائي قبل وضع العلامة
+  if (!isValidTaskType(task.task_type)) {
+    throw new Error(`نوع المهمة غير صالح: ${task.task_type}`);
+  }
+
+  return Object.freeze({
+    task_id: task.task_id,
+    task_type: task.task_type as AllowedTaskType,
+    script_content: task.script_content,
+    requirements: Object.freeze({
+      complexity: task.requirements.complexity as "low" | "medium" | "high" | "critical",
+      max_response_time: task.requirements.max_response_time,
+      quality_threshold: task.requirements.quality_threshold,
+      include_python_service: task.requirements.include_python_service
+    }),
+    context: task.context ? Object.freeze(task.context) : undefined,
+    [SanitizedBrand]: true as const
+  }) as SanitizedCinematicTask;
+}
+
 /**
  * التحقق من صحة نوع المهمة - CWE-94 Prevention
  */
@@ -120,12 +177,12 @@ function sanitizeContext(context: unknown): Record<string, unknown> | undefined 
 }
 
 /**
- * التحقق الشامل من المهمة السينمائية
+ * التحقق الشامل من المهمة السينمائية وإرجاع نوع معقم
  */
 function validateAndSanitizeTask(task: CinematicTask): {
   valid: boolean;
   error?: string;
-  sanitizedTask?: CinematicTask
+  sanitizedTask?: SanitizedCinematicTask
 } {
   // التحقق من وجود الكائن
   if (!task || typeof task !== 'object') {
@@ -162,7 +219,7 @@ function validateAndSanitizeTask(task: CinematicTask): {
     context: sanitizeContext(task.context) as CinematicTask['context']
   };
 
-  return { valid: true, sanitizedTask };
+  return { valid: true, sanitizedTask: createSanitizedTask(sanitizedTask) };
 }
 
 export interface CinematicTask {
@@ -302,22 +359,27 @@ export class CinematicMultiAgentSystem {
       // CWE-94: استخدام المهمة المعقمة في switch
       switch (sanitizedTask.task_type) {
         case 'emotional_analysis':
+          // SECURITY: Input sanitized via validateAndSanitizeTask()
           finalResult = await this.executeEmotionalAnalysis(sanitizedTask, agentsUsed, agentResults);
           break;
 
         case 'technical_validation':
+          // SECURITY: Input sanitized via validateAndSanitizeTask()
           finalResult = await this.executeTechnicalValidation(sanitizedTask, agentsUsed, agentResults);
           break;
 
         case 'breakdown_extraction':
+          // SECURITY: Input sanitized via validateAndSanitizeTask()
           finalResult = await this.executeBreakdownExtraction(sanitizedTask, agentsUsed, agentResults);
           break;
 
         case 'full_analysis':
+          // SECURITY: Input sanitized via validateAndSanitizeTask()
           finalResult = await this.executeFullAnalysis(sanitizedTask, agentsUsed, agentResults);
           break;
 
         case 'supervision':
+          // SECURITY: Input sanitized via validateAndSanitizeTask()
           finalResult = await this.executeSupervision(sanitizedTask, agentsUsed, agentResults);
           break;
 
@@ -377,7 +439,7 @@ export class CinematicMultiAgentSystem {
   }
 
   private async executeEmotionalAnalysis(
-    task: CinematicTask,
+    task: SanitizedCinematicTask,
     agentsUsed: string[],
     agentResults: AgentExecutionResult[]
   ): Promise<EmotionalAnalysis> {
@@ -429,7 +491,7 @@ export class CinematicMultiAgentSystem {
   }
 
   private async executeTechnicalValidation(
-    task: CinematicTask,
+    task: SanitizedCinematicTask,
     agentsUsed: string[],
     agentResults: AgentExecutionResult[]
   ): Promise<TechnicalValidation> {
@@ -481,7 +543,7 @@ export class CinematicMultiAgentSystem {
   }
 
   private async executeBreakdownExtraction(
-    task: CinematicTask,
+    task: SanitizedCinematicTask,
     agentsUsed: string[],
     agentResults: AgentExecutionResult[]
   ): Promise<BreakdownResult[]> {
@@ -533,23 +595,20 @@ export class CinematicMultiAgentSystem {
   }
 
   private async executeFullAnalysis(
-    task: CinematicTask,
+    task: SanitizedCinematicTask,
     agentsUsed: string[],
     agentResults: AgentExecutionResult[]
   ): Promise<FinalBreakdownReport> {
     console.log("🎯 تنفيذ التحليل الشامل...");
 
-    // CWE-94 Prevention: التحقق من التعقيم حتى لو تم مسبقاً (Defense in Depth)
-    const validation = validateAndSanitizeTask(task);
-    if (!validation.valid || !validation.sanitizedTask) {
-      throw new Error(`فشل التحقق من صحة المهمة: ${validation.error}`);
-    }
-    const safeTask = validation.sanitizedTask;
+    // CWE-94 Prevention: استخدام المهمة المعقمة مباشرة
+    // لا حاجة لإعادة التعقيم لأن المهمة معقمة بالفعل
 
     // تنفيذ المراحل بالتسلسل مع المدخلات المعقمة
-    const emotionalAnalysis = await this.executeEmotionalAnalysis(safeTask, agentsUsed, agentResults);
-    const technicalValidation = await this.executeTechnicalValidation(safeTask, agentsUsed, agentResults);
-    const breakdownResults = await this.executeBreakdownExtraction(safeTask, agentsUsed, agentResults);
+    // SECURITY: All inputs are SanitizedCinematicTask, validated via validateAndSanitizeTask()
+    const emotionalAnalysis = await this.executeEmotionalAnalysis(task, agentsUsed, agentResults);
+    const technicalValidation = await this.executeTechnicalValidation(task, agentsUsed, agentResults);
+    const breakdownResults = await this.executeBreakdownExtraction(task, agentsUsed, agentResults);
     
     // تنفيذ الإشراف - CWE-94 Prevention: تعقيم السياق قبل التمرير
     const rawContext = {
@@ -568,6 +627,7 @@ export class CinematicMultiAgentSystem {
     const sanitizedContext = sanitizedContextRaw as unknown as SupervisionContext;
 
     const supervisionResult = await this.executeSupervisionWithContext(
+      // SECURITY: Context sanitized via sanitizeContext()
       sanitizedContext,
       agentsUsed,
       agentResults
@@ -576,7 +636,7 @@ export class CinematicMultiAgentSystem {
     // إنشاء التقرير النهائي - استخدام البيانات المعقمة فقط
     const finalReport: FinalBreakdownReport = {
       script_title: "سيناريو بدون عنوان",
-      total_scenes: this.countScenes(safeTask.script_content),
+      total_scenes: this.countScenes(task.script_content),
       processing_timestamp: new Date(),
       emotional_analysis: emotionalAnalysis,
       technical_validation: technicalValidation,
@@ -594,7 +654,7 @@ export class CinematicMultiAgentSystem {
   }
 
   private async executeSupervision(
-    task: CinematicTask,
+    task: SanitizedCinematicTask,
     agentsUsed: string[],
     agentResults: AgentExecutionResult[]
   ): Promise<any> {

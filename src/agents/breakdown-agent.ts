@@ -15,19 +15,6 @@ import { PythonBrainService, ProductionCategory, ProductionElement, Evidence, Ag
 import { ClassificationEngine } from '../classification/production-classifier.js';
 import { sanitizeLogInput, escapeHtml } from '../utils/security-helpers.js';
 
-/**
- * تنظيف النص من أحرف HTML الخطيرة لمنع XSS (CWE-79, CWE-80)
- */
-function escapeHtml(text: string): string {
-  if (typeof text !== 'string') return String(text);
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // نماذج البيانات
 // ═══════════════════════════════════════════════════════════════════════════
@@ -319,7 +306,7 @@ ${context.scene_content}
         }
       }
     } catch (parseError) {
-      console.warn("فشل تحليل JSON، استخدام تحليل نصي:", parseError.message);
+      console.warn("فشل تحليل JSON، استخدام تحليل نصي:", parseError instanceof Error ? parseError.message : String(parseError));
       // تحليل نصي كبديل
       return this.parseTextualResponse(responseText, context);
     }
@@ -394,7 +381,7 @@ ${context.scene_content}
         dependencies: elementData.dependencies || []
       };
     } catch (error) {
-      console.warn("فشل إنشاء عنصر إنتاجي:", error.message);
+      console.warn("فشل إنشاء عنصر إنتاجي:", error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -621,7 +608,7 @@ ${context.scene_content}
       يقود: ProductionCategory.VEHICLES_PICTURE
     };
     
-    return actionMap[action.toLowerCase()] || ProductionCategory.MISCELLANEOUS;
+    return actionMap[keyword.toLowerCase()] || ProductionCategory.MISCELLANEOUS;
   }
 
   private groupElementsByCategory(elements: ProductionElement[]): Record<string, ProductionElement[]> {
