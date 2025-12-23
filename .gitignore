@@ -534,3 +534,6 @@ legal/
 invoices/
 receipts/
 financial/
+# API Uploads and Outputs
+uploads/
+outputs/
