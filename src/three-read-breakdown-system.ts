@@ -14,7 +14,7 @@
 import 'dotenv/config';
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatOpenAI } from "@langchain/openai";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { DynamicTool } from "@langchain/core/tools";
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -353,12 +353,13 @@ export class ModelManager {
         });
         
       case "google":
-        return new ChatGoogleGenerativeAI({
-          model: config.model,
-          temperature: config.temperature,
-          maxOutputTokens: config.maxTokens,
-          apiKey
-        });
+        // return new ChatGoogleGenerativeAI({
+        //   model: config.model,
+        //   temperature: config.temperature,
+        //   maxOutputTokens: config.maxTokens,
+        //   apiKey
+        // });
+        throw new Error(`Google provider temporarily disabled`);
         
       default:
         throw new Error(`موفر غير مدعوم: ${config.provider}`);
@@ -908,7 +909,7 @@ export class BreakdownReadingAgent {
     return Array.from(grouped.entries()).map(([category, items]) => ({
       category,
       items,
-      color_code: colorCodes[category] || "#CCCCCC"
+      color_code: (colorCodes as any)[category] || "#CCCCCC"
     }));
   }
   
@@ -933,8 +934,8 @@ export class BreakdownReadingAgent {
     
     // دمج العناصر مع تجنب التكرار
     const allElements = [...baseElements];
-    enhancedElements.forEach(enhElement => {
-      const exists = baseElements.some(baseEl => 
+    enhancedElements.forEach((enhElement: any) => {
+      const exists = baseElements.some((baseEl: any) => 
         baseEl.name === enhElement.name && baseEl.category === enhElement.category
       );
       if (!exists) {
@@ -961,7 +962,7 @@ export class BreakdownReadingAgent {
 
 export class SupervisorAgent {
   private model: BaseLanguageModel;
-  private rules: SupervisorRule[];
+  private rules: SupervisorRule[] = [];
   
   constructor(modelManager: ModelManager) {
     this.model = modelManager.getModel("supervision");
@@ -1271,10 +1272,10 @@ export class ThreeReadBreakdownSystem {
   private modelManager: ModelManager;
   private pythonService: PythonBrainService;
   
-  private emotionalAgent: EmotionalReadingAgent;
-  private technicalAgent: TechnicalReadingAgent;
-  private breakdownAgent: BreakdownReadingAgent;
-  private supervisorAgent: SupervisorAgent;
+  private emotionalAgent!: EmotionalReadingAgent;
+  private technicalAgent!: TechnicalReadingAgent;
+  private breakdownAgent!: BreakdownReadingAgent;
+  private supervisorAgent!: SupervisorAgent;
   
   private isInitialized = false;
   
