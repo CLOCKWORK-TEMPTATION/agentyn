@@ -376,7 +376,7 @@ export class ModelManager {
       "supervision": "claude-4-sonnet"
     };
     
-    const preferredModel = modelSelectionRules[taskType] || "claude-4-sonnet";
+    const preferredModel = (modelSelectionRules as any)[taskType] || "claude-4-sonnet";
     
     // Fallback chain
     const fallbackChain = [preferredModel, "claude-4-sonnet", "gpt-4o", "gemini-pro"];
@@ -467,7 +467,7 @@ export class EmotionalReadingAgent {
           analysisResult = this.mergeEmotionalAnalysis(analysisResult, pythonResult);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين بـ Python service:", (pythonError as Error).message);
       }
       
       console.log("✅ تم إكمال التحليل العاطفي");
@@ -585,7 +585,7 @@ export class TechnicalReadingAgent {
           validationResult = this.mergeTechnicalValidation(validationResult, pythonResult);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين التقني بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين التقني بـ Python service:", (pythonError as Error).message);
       }
       
       console.log("✅ تم إكمال الفحص التقني");
@@ -763,7 +763,7 @@ export class BreakdownReadingAgent {
           breakdownResult = this.mergeBreakdownResults(breakdownResult, pythonResult);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين بـ Python service:", (pythonError as Error).message);
       }
       
       console.log("✅ تم إكمال استخراج العناصر");
