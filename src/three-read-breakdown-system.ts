@@ -18,7 +18,6 @@ import { ChatOpenAI } from "@langchain/openai";
 import { DynamicTool } from "@langchain/core/tools";
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { MemorySaver } from "@langchain/langgraph";
 import axios from 'axios';
 
@@ -522,80 +521,70 @@ export class EmotionalReadingAgent {
 // الوكيل التقني (Technical Reading Agent)  
 // ═══════════════════════════════════════════════════════════════════════════
 
+// استيراد الوكيل التقني المتقدم
+import { TechnicalReadingAgent as AdvancedTechnicalAgent } from './agents/technical-agent.js';
+
 export class TechnicalReadingAgent {
-  private model: BaseLanguageModel;
-  private pythonService: PythonBrainService;
+  private advancedAgent: AdvancedTechnicalAgent;
   
   constructor(modelManager: ModelManager, pythonService: PythonBrainService) {
-    this.model = modelManager.getModel("technical_validation");
-    this.pythonService = pythonService;
+    const model = modelManager.getModel("technical_validation");
+    this.advancedAgent = new AdvancedTechnicalAgent(model, pythonService);
   }
   
   async validateFormatting(scriptText: string): Promise<TechnicalValidation> {
     console.log("🔧 بدء الفحص التقني للسيناريو...");
     
-    const systemPrompt = `أنت وكيل متخصص في الفحص التقني للسيناريوهات السينمائية.
-
-مهمتك: فحص التنسيق واكتشاف الأخطاء الهيكلية دون التركيز على المحتوى العاطفي.
-
-التحقق من:
-1. اتساق ترويسات المشاهد (INT/EXT + Location + DAY/NIGHT)
-2. تحديد المواقع والتوقيت بوضوح
-3. عدم وجود فساد في البيانات أو تكرار في الشخصيات والمواقع
-4. صحة تنسيق الحوار والوصف
-5. التسلسل المنطقي للمشاهد
-
-أخرج النتيجة بصيغة JSON مع الحقول التالية:
-- is_valid: هل السيناريو صالح تقنياً
-- errors: قائمة الأخطاء المكتشفة
-- warnings: التحذيرات والاقتراحات
-- scene_headers: تحليل ترويسات المشاهد
-- character_consistency: فحص اتساق الشخصيات`;
-
     try {
-      const messages = [
-        new SystemMessage(systemPrompt),
-        new HumanMessage(`افحص هذا السيناريو تقنياً:\n\n${scriptText}`)
-      ];
+      // استخدام الوكيل المتقدم
+      const advancedValidation = await this.advancedAgent.validateFormatting(scriptText);
       
-      const response = await this.model.invoke(messages);
-      
-      // تحليل الاستجابة
-      let validationResult;
-      try {
-        const jsonMatch = response.content.toString().match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          validationResult = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("لم يتم العثور على JSON في الاستجابة");
-        }
-      } catch (parseError) {
-        validationResult = this.createFallbackValidation(scriptText);
-      }
-      
-      // تحسين بـ Python service
-      try {
-        const pythonJob = await this.pythonService.analyzeWithComponent(
-          scriptText,
-          "continuity_check",
-          { validation_type: "technical" }
-        );
-        
-        if (pythonJob.status !== "fallback") {
-          const pythonResult = await this.pythonService.waitForCompletion(pythonJob.job_id, 15000);
-          validationResult = this.mergeTechnicalValidation(validationResult, pythonResult);
-        }
-      } catch (pythonError) {
-        console.warn("فشل التحسين التقني بـ Python service:", (pythonError as Error).message);
-      }
-      
-      console.log("✅ تم إكمال الفحص التقني");
-      return validationResult;
+      // تحويل النتيجة إلى التنسيق المتوقع
+      return this.convertToLegacyFormat(advancedValidation);
       
     } catch (error) {
       console.error("❌ خطأ في الفحص التقني:", error);
-      throw error;
+      return this.createFallbackValidation(scriptText);
     }
+  }
+  
+  private convertToLegacyFormat(advancedValidation: any): TechnicalValidation {
+    return {
+      is_valid: advancedValidation.is_valid,
+      errors: advancedValidation.errors.map((error: any) => ({
+        type: error.type,
+        message: error.message,
+        line_number: error.line_number,
+        severity: error.severity
+      })),
+      warnings: advancedValidation.warnings.map((warning: any) => ({
+        type: warning.type,
+        message: warning.message,
+        suggestion: warning.suggestion
+      })),
+      scene_headers: advancedValidation.scene_headers.map((header: any) => ({
+        scene_number: header.scene_number,
+        int_ext: header.int_ext.value,
+        location: header.location.value,
+        time_of_day: header.time_of_day.value,
+        is_valid: header.overall_valid,
+        issues: [
+          ...header.int_ext.issues,
+          ...header.location.issues,
+          ...header.time_of_day.issues
+        ]
+      })),
+      character_consistency: {
+        characters: advancedValidation.character_consistency.map((char: any) => char.character_name),
+        inconsistencies: advancedValidation.character_consistency
+          .filter((char: any) => !char.is_consistent)
+          .map((char: any) => ({
+            character: char.character_name,
+            issue: char.inconsistencies.map((inc: any) => inc.type).join(', '),
+            scenes: char.inconsistencies.flatMap((inc: any) => inc.scenes)
+          }))
+      }
+    };
   }
   
   private createFallbackValidation(scriptText: string): TechnicalValidation {
@@ -642,7 +631,7 @@ export class TechnicalReadingAgent {
   private extractCharacters(text: string): string[] {
     const charPattern = /^([A-Za-z\u0600-\u06FF][A-Za-z\u0600-\u06FF\s]{1,30}):/gm;
     const matches = text.match(charPattern) || [];
-    return [...new Set(matches.map(m => m.replace(':', '').trim()))];
+    return Array.from(new Set(matches.map(m => m.replace(':', '').trim())));
   }
   
   private extractIntExt(header: string): string {
@@ -662,15 +651,6 @@ export class TechnicalReadingAgent {
     if (/ليل|night/i.test(header)) return "ليل";
     if (/نهار|day/i.test(header)) return "نهار";
     return "غير محدد";
-  }
-  
-  private mergeTechnicalValidation(base: any, enhancement: any): TechnicalValidation {
-    return {
-      ...base,
-      is_valid: base.is_valid && (enhancement?.validation_passed !== false),
-      errors: [...(base.errors || []), ...(enhancement?.errors || [])],
-      warnings: [...(base.warnings || []), ...(enhancement?.warnings || [])]
-    };
   }
 }
 
@@ -861,7 +841,7 @@ export class BreakdownReadingAgent {
   private extractBasicCharacters(text: string): string[] {
     const charPattern = /^([A-Za-z\u0600-\u06FF][A-Za-z\u0600-\u06FF\s]{1,30}):/gm;
     const matches = text.match(charPattern) || [];
-    return [...new Set(matches.map(m => m.replace(':', '').trim()))];
+    return Array.from(new Set(matches.map(m => m.replace(':', '').trim())));
   }
   
   private extractBasicProps(text: string): string[] {

@@ -28,7 +28,7 @@ export default {
   ],
   
   // إعداد الوحدات
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1'
   },
   

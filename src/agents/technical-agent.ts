@@ -1,12 +1,13 @@
 /**
  * الوكيل التقني (Technical Reading Agent)
- * متخصص في الفحص التقني للسيناريوهات
+ * متخصص في القراءة التقنية للسيناريوهات
  * 
  * يركز على:
- * - فحص التنسيق والهيكل
- * - التحقق من اتساق الشخصيات والمواقع
+ * - فحص التنسيق واكتشاف الأخطاء الهيكلية
+ * - التحقق من اتساق ترويسات المشاهد
+ * - فحص تحديد المواقع والتوقيت
  * - كشف فساد البيانات والتكرار
- * - التحقق من صحة ترويسات المشاهد
+ * - التحقق من اتساق الشخصيات والمواقع
  */
 
 import { BaseLanguageModel } from "@langchain/core/language_models/base";
@@ -17,102 +18,119 @@ import { PythonBrainService } from '../three-read-breakdown-system.js';
 // نماذج البيانات
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface FormatValidation {
-  is_valid: boolean;
-  format_type: "standard" | "fdx" | "fountain" | "custom" | "unknown";
-  compliance_score: number; // 0-1
-  format_issues: Array<{
-    type: "scene_header" | "character_name" | "dialogue" | "action" | "transition";
-    line_number: number;
-    issue: string;
-    severity: "info" | "warning" | "error" | "critical";
-    suggestion: string;
-  }>;
+export interface FormatError {
+  type: "structure" | "header" | "character" | "dialogue" | "action" | "transition";
+  message: string;
+  line_number?: number;
+  column_number?: number;
+  severity: "warning" | "error" | "critical";
+  suggestion?: string;
+  span_start?: number;
+  span_end?: number;
+}
+
+export interface FormatWarning {
+  type: "style" | "consistency" | "best_practice" | "formatting";
+  message: string;
+  suggestion: string;
+  line_number?: number;
+  impact: "low" | "medium" | "high";
+}
+
+export interface FormatSuggestion {
+  type: "improvement" | "standardization" | "optimization";
+  description: string;
+  before: string;
+  after: string;
+  benefit: string;
 }
 
 export interface SceneHeaderValidation {
   scene_number: string;
-  header_text: string;
-  is_valid: boolean;
-  components: {
-    int_ext: {
-      value: string;
-      is_valid: boolean;
-      issue?: string;
-    };
-    location: {
-      value: string;
-      is_valid: boolean;
-      issue?: string;
-    };
-    time_of_day: {
-      value: string;
-      is_valid: boolean;
-      issue?: string;
-    };
+  raw_header: string;
+  int_ext: {
+    value: string;
+    is_valid: boolean;
+    issues: string[];
   };
-  suggestions: string[];
+  location: {
+    value: string;
+    is_valid: boolean;
+    is_consistent: boolean;
+    previous_occurrences: string[];
+    issues: string[];
+  };
+  time_of_day: {
+    value: string;
+    is_valid: boolean;
+    is_consistent: boolean;
+    issues: string[];
+  };
+  overall_valid: boolean;
+  confidence: number;
 }
 
 export interface CharacterConsistency {
   character_name: string;
-  appearances: Array<{
-    scene_number: string;
-    line_number: number;
-    name_variant: string;
-  }>;
+  total_appearances: number;
+  name_variations: string[];
   inconsistencies: Array<{
-    type: "spelling" | "formatting" | "missing" | "duplicate";
-    description: string;
-    scenes_affected: string[];
+    type: "spelling" | "formatting" | "case" | "missing_colon";
+    scenes: string[];
+    examples: string[];
     severity: "minor" | "major" | "critical";
   }>;
-  suggested_canonical_name: string;
+  is_consistent: boolean;
+  confidence: number;
 }
 
 export interface LocationConsistency {
   location_name: string;
-  appearances: Array<{
-    scene_number: string;
-    header_text: string;
-    name_variant: string;
-  }>;
+  total_appearances: number;
+  variations: string[];
   inconsistencies: Array<{
     type: "spelling" | "description" | "int_ext_mismatch";
-    description: string;
-    scenes_affected: string[];
+    scenes: string[];
+    examples: string[];
+    severity: "minor" | "major" | "critical";
   }>;
-  suggested_canonical_name: string;
+  is_consistent: boolean;
 }
 
-export interface DataCorruption {
-  corruption_type: "encoding" | "formatting" | "truncation" | "duplication" | "insertion";
-  affected_lines: number[];
-  description: string;
-  severity: "low" | "medium" | "high" | "critical";
-  auto_fixable: boolean;
-  suggested_fix?: string;
+export interface CorruptionReport {
+  has_corruption: boolean;
+  corruption_types: Array<{
+    type: "encoding" | "truncation" | "duplication" | "missing_content" | "malformed_structure";
+    description: string;
+    locations: Array<{
+      line_number?: number;
+      span_start: number;
+      span_end: number;
+      sample_text: string;
+    }>;
+    severity: "low" | "medium" | "high" | "critical";
+    fix_suggestion: string;
+  }>;
+  overall_integrity: number; // 0-1
+  recovery_possible: boolean;
 }
 
-export interface TechnicalAnalysis {
-  format_validation: FormatValidation;
+export interface FormatValidation {
+  is_valid: boolean;
+  overall_score: number; // 0-1
+  errors: FormatError[];
+  warnings: FormatWarning[];
+  suggestions: FormatSuggestion[];
   scene_headers: SceneHeaderValidation[];
   character_consistency: CharacterConsistency[];
   location_consistency: LocationConsistency[];
-  data_corruption: DataCorruption[];
-  overall_health: {
-    technical_score: number; // 0-1
-    readiness_for_production: boolean;
-    critical_issues_count: number;
-    recommendations: string[];
-  };
-  statistics: {
+  corruption_report: CorruptionReport;
+  processing_metadata: {
+    total_lines: number;
     total_scenes: number;
     total_characters: number;
-    total_locations: number;
-    dialogue_lines: number;
-    action_lines: number;
-    avg_scene_length: number;
+    processing_time: number;
+    confidence: number;
   };
 }
 
@@ -125,738 +143,958 @@ export class TechnicalReadingAgent {
   private pythonService: PythonBrainService;
   
   // أنماط التحقق من التنسيق
-  private readonly SCENE_HEADER_PATTERNS = [
-    /^(مشهد|scene)\s*(\d+)?\s*[-–—:]?\s*(داخلي|خارجي|int\.?|ext\.?)\s*[-–—]?\s*(.+?)\s*[-–—]?\s*(ليل|نهار|day|night|dawn|dusk|continuous)/i,
-    /^(داخلي|خارجي|int\.?|ext\.?)\s*[-–—]?\s*(.+?)\s*[-–—]?\s*(ليل|نهار|day|night|dawn|dusk|continuous)/i
-  ];
+  private readonly SCENE_HEADER_PATTERNS = {
+    arabic: /^(?:مشهد|المشهد)\s*(\d+)\s*[:\-–—]?\s*(.*)/i,
+    english: /^(?:scene|sc\.?)\s*(\d+)\s*[:\-–—]?\s*(.*)/i,
+    mixed: /^(?:مشهد|scene)\s*(\d+)\s*[:\-–—]?\s*(.*)/i
+  };
   
-  private readonly CHARACTER_PATTERNS = [
-    /^([أ-ي\w\s]{2,30}):/gm,
-    /^([A-Z][A-Z\s]{2,30}):/gm
-  ];
-
+  private readonly INT_EXT_PATTERNS = {
+    arabic: /\b(داخلي|خارجي|داخل|خارج)\b/i,
+    english: /\b(int\.?|ext\.?|interior|exterior)\b/i
+  };
+  
+  private readonly TIME_PATTERNS = {
+    arabic: /\b(ليل|نهار|صباح|مساء|فجر|غروب|ظهر|عصر)\b/i,
+    english: /\b(day|night|dawn|dusk|morning|afternoon|evening|noon)\b/i
+  };
+  
+  private readonly CHARACTER_PATTERN = /^([أ-ي\w\s]{2,50})\s*:/gm;
+  
   constructor(model: BaseLanguageModel, pythonService: PythonBrainService) {
     this.model = model;
     this.pythonService = pythonService;
   }
 
   /**
-   * التحليل التقني الشامل للسيناريو
+   * فحص التنسيق الشامل للسيناريو
    */
-  async analyzeTechnical(scriptText: string): Promise<TechnicalAnalysis> {
-    console.log("🔧 بدء التحليل التقني الشامل...");
+  async validateFormatting(scriptText: string): Promise<FormatValidation> {
+    console.log("🔧 بدء الفحص التقني الشامل للسيناريو...");
+    
+    const startTime = Date.now();
     
     try {
-      // التحليل المحلي أولاً
-      const formatValidation = await this.validateFormat(scriptText);
-      const sceneHeaders = await this.validateSceneHeaders(scriptText);
-      const characterConsistency = await this.checkCharacterConsistency(scriptText);
-      const locationConsistency = await this.checkLocationConsistency(scriptText);
-      const dataCorruption = await this.detectDataCorruption(scriptText);
-      const statistics = this.calculateStatistics(scriptText);
+      // الفحص الأساسي
+      const basicValidation = await this.performBasicValidation(scriptText);
+      
+      // فحص ترويسات المشاهد
+      const sceneHeaders = await this.checkSceneHeaders(scriptText);
+      
+      // فحص اتساق الشخصيات
+      const characterConsistency = await this.validateCharacterConsistency(scriptText);
+      
+      // فحص اتساق المواقع
+      const locationConsistency = await this.checkLocationConsistencyForScript(scriptText);
+      
+      // فحص فساد البيانات
+      const corruptionReport = await this.detectDataCorruption(scriptText);
       
       // تحسين بـ Python service إذا متاح
-      let enhancedResults = null;
+      let enhancedValidation = null;
       try {
         const pythonJob = await this.pythonService.analyzeWithComponent(
           scriptText,
           "continuity_check",
           { 
-            analysis_type: "technical",
-            check_consistency: true,
-            validate_format: true
+            validation_type: "comprehensive",
+            check_formatting: true,
+            check_consistency: true
           }
         );
         
         if (pythonJob.status !== "fallback") {
-          enhancedResults = await this.pythonService.waitForCompletion(pythonJob.job_id, 20000);
+          enhancedValidation = await this.pythonService.waitForCompletion(pythonJob.job_id, 20000);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين بـ Python service:", (pythonError as Error).message);
       }
       
       // دمج النتائج
-      const analysis: TechnicalAnalysis = {
-        format_validation: formatValidation,
-        scene_headers: sceneHeaders,
-        character_consistency: characterConsistency,
-        location_consistency: locationConsistency,
-        data_corruption: dataCorruption,
-        overall_health: this.calculateOverallHealth(
-          formatValidation, sceneHeaders, characterConsistency, 
-          locationConsistency, dataCorruption
-        ),
-        statistics
-      };
+      const finalValidation = this.mergeValidationResults(
+        basicValidation,
+        sceneHeaders,
+        characterConsistency,
+        locationConsistency,
+        corruptionReport,
+        enhancedValidation
+      );
       
-      // تحسين بنتائج Python إذا متاحة
-      if (enhancedResults) {
-        this.enhanceWithPythonResults(analysis, enhancedResults);
-      }
+      const processingTime = Date.now() - startTime;
+      finalValidation.processing_metadata.processing_time = processingTime;
       
-      console.log("✅ تم إكمال التحليل التقني");
-      return analysis;
+      console.log("✅ تم إكمال الفحص التقني");
+      console.log(`   📊 النتيجة الإجمالية: ${(finalValidation.overall_score * 100).toFixed(1)}%`);
+      console.log(`   ❌ الأخطاء: ${finalValidation.errors.length}`);
+      console.log(`   ⚠️ التحذيرات: ${finalValidation.warnings.length}`);
+      
+      return finalValidation;
       
     } catch (error) {
-      console.error("❌ خطأ في التحليل التقني:", error);
-      return this.createFallbackTechnicalAnalysis(scriptText);
+      console.error("❌ خطأ في الفحص التقني:", error);
+      return this.createFallbackValidation(scriptText);
     }
   }
 
   /**
-   * فحص تنسيق السيناريو
+   * فحص ترويسات المشاهد
    */
-  async validateFormat(scriptText: string): Promise<FormatValidation> {
-    const lines = scriptText.split('\n');
-    const issues: FormatValidation['format_issues'] = [];
-    let complianceScore = 1.0;
+  async checkSceneHeaders(scriptText: string): Promise<SceneHeaderValidation[]> {
+    console.log("🎬 فحص ترويسات المشاهد...");
     
-    // تحديد نوع التنسيق
-    const formatType = this.detectFormatType(scriptText);
+    const headers = this.extractSceneHeaders(scriptText);
+    const validations: SceneHeaderValidation[] = [];
     
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) return;
-      
-      const lineNumber = index + 1;
-      
-      // فحص ترويسات المشاهد
-      if (this.looksLikeSceneHeader(trimmed)) {
-        const headerIssue = this.validateSceneHeaderFormat(trimmed);
-        if (headerIssue) {
-          issues.push({
-            type: "scene_header",
-            line_number: lineNumber,
-            issue: headerIssue.issue,
-            severity: headerIssue.severity,
-            suggestion: headerIssue.suggestion
-          });
-          complianceScore -= 0.1;
-        }
-      }
-      
-      // فحص أسماء الشخصيات
-      else if (this.looksLikeCharacterName(trimmed)) {
-        const characterIssue = this.validateCharacterNameFormat(trimmed);
-        if (characterIssue) {
-          issues.push({
-            type: "character_name",
-            line_number: lineNumber,
-            issue: characterIssue.issue,
-            severity: characterIssue.severity,
-            suggestion: characterIssue.suggestion
-          });
-          complianceScore -= 0.05;
-        }
-      }
-      
-      // فحص الحوار
-      else if (this.looksLikeDialogue(trimmed, lines[index - 1])) {
-        const dialogueIssue = this.validateDialogueFormat(trimmed);
-        if (dialogueIssue) {
-          issues.push({
-            type: "dialogue",
-            line_number: lineNumber,
-            issue: dialogueIssue.issue,
-            severity: dialogueIssue.severity,
-            suggestion: dialogueIssue.suggestion
-          });
-          complianceScore -= 0.02;
-        }
-      }
-      
-      // فحص الوصف/الحركة
-      else {
-        const actionIssue = this.validateActionFormat(trimmed);
-        if (actionIssue) {
-          issues.push({
-            type: "action",
-            line_number: lineNumber,
-            issue: actionIssue.issue,
-            severity: actionIssue.severity,
-            suggestion: actionIssue.suggestion
-          });
-          complianceScore -= 0.01;
-        }
-      }
-    });
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i];
+      const validation = await this.validateSingleSceneHeader(header, i + 1, headers);
+      validations.push(validation);
+    }
     
-    return {
-      is_valid: complianceScore > 0.7 && issues.filter(i => i.severity === "critical").length === 0,
-      format_type: formatType,
-      compliance_score: Math.max(0, complianceScore),
-      format_issues: issues
-    };
-  }
-
-  /**
-   * التحقق من صحة ترويسات المشاهد
-   */
-  async validateSceneHeaders(scriptText: string): Promise<SceneHeaderValidation[]> {
-    const lines = scriptText.split('\n');
-    const sceneHeaders: SceneHeaderValidation[] = [];
-    let sceneNumber = 1;
-    
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      
-      if (this.looksLikeSceneHeader(trimmed)) {
-        const validation = this.analyzeSceneHeader(trimmed, sceneNumber.toString());
-        sceneHeaders.push(validation);
-        sceneNumber++;
-      }
-    });
-    
-    return sceneHeaders;
+    return validations;
   }
 
   /**
    * فحص اتساق الشخصيات
    */
-  async checkCharacterConsistency(scriptText: string): Promise<CharacterConsistency[]> {
-    const characterMap = new Map<string, CharacterConsistency>();
-    const lines = scriptText.split('\n');
-    let currentScene = "1";
+  async validateCharacterConsistency(scriptText: string): Promise<CharacterConsistency[]> {
+    console.log("👥 فحص اتساق الشخصيات...");
     
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      
-      // تحديث رقم المشهد الحالي
-      if (this.looksLikeSceneHeader(trimmed)) {
-        const sceneMatch = trimmed.match(/(\d+)/);
-        if (sceneMatch) {
-          currentScene = sceneMatch[1];
-        }
-      }
-      
-      // البحث عن أسماء الشخصيات
-      const characterMatch = trimmed.match(/^([أ-ي\w\s]{2,30}):/);
-      if (characterMatch) {
-        const characterName = characterMatch[1].trim();
-        const normalizedName = this.normalizeCharacterName(characterName);
-        
-        if (!characterMap.has(normalizedName)) {
-          characterMap.set(normalizedName, {
-            character_name: normalizedName,
-            appearances: [],
-            inconsistencies: [],
-            suggested_canonical_name: characterName
-          });
-        }
-        
-        const character = characterMap.get(normalizedName)!;
-        character.appearances.push({
-          scene_number: currentScene,
-          line_number: index + 1,
-          name_variant: characterName
-        });
-        
-        // فحص التناسق في الكتابة
-        if (characterName !== character.suggested_canonical_name) {
-          const existingInconsistency = character.inconsistencies.find(
-            inc => inc.type === "spelling" && inc.description.includes(characterName)
-          );
-          
-          if (!existingInconsistency) {
-            character.inconsistencies.push({
-              type: "spelling",
-              description: `تباين في كتابة الاسم: "${characterName}" vs "${character.suggested_canonical_name}"`,
-              scenes_affected: [currentScene],
-              severity: "minor"
-            });
-          } else {
-            if (!existingInconsistency.scenes_affected.includes(currentScene)) {
-              existingInconsistency.scenes_affected.push(currentScene);
-            }
-          }
-        }
-      }
-    });
+    const characters = this.extractAllCharacters(scriptText);
+    const consistencyReports: CharacterConsistency[] = [];
     
-    return Array.from(characterMap.values());
-  }
-
-  /**
-   * فحص اتساق المواقع
-   */
-  async checkLocationConsistency(scriptText: string): Promise<LocationConsistency[]> {
-    const locationMap = new Map<string, LocationConsistency>();
-    const lines = scriptText.split('\n');
-    let sceneNumber = 1;
+    for (const character of characters) {
+      const consistency = await this.analyzeCharacterConsistency(character, scriptText);
+      consistencyReports.push(consistency);
+    }
     
-    lines.forEach((line) => {
-      const trimmed = line.trim();
-      
-      if (this.looksLikeSceneHeader(trimmed)) {
-        const locationInfo = this.extractLocationFromHeader(trimmed);
-        
-        if (locationInfo.location) {
-          const normalizedLocation = this.normalizeLocationName(locationInfo.location);
-          
-          if (!locationMap.has(normalizedLocation)) {
-            locationMap.set(normalizedLocation, {
-              location_name: normalizedLocation,
-              appearances: [],
-              inconsistencies: [],
-              suggested_canonical_name: locationInfo.location
-            });
-          }
-          
-          const location = locationMap.get(normalizedLocation)!;
-          location.appearances.push({
-            scene_number: sceneNumber.toString(),
-            header_text: trimmed,
-            name_variant: locationInfo.location
-          });
-          
-          // فحص تناسق داخلي/خارجي
-          const currentIntExt = locationInfo.intExt;
-          const previousAppearances = location.appearances.slice(0, -1);
-          
-          for (const prev of previousAppearances) {
-            const prevLocationInfo = this.extractLocationFromHeader(prev.header_text);
-            if (prevLocationInfo.intExt !== currentIntExt) {
-              location.inconsistencies.push({
-                type: "int_ext_mismatch",
-                description: `تضارب في داخلي/خارجي: ${prevLocationInfo.intExt} vs ${currentIntExt}`,
-                scenes_affected: [prev.scene_number, sceneNumber.toString()]
-              });
-            }
-          }
-        }
-        
-        sceneNumber++;
-      }
-    });
-    
-    return Array.from(locationMap.values());
+    return consistencyReports;
   }
 
   /**
    * كشف فساد البيانات
    */
-  async detectDataCorruption(scriptText: string): Promise<DataCorruption[]> {
-    const corruptions: DataCorruption[] = [];
-    const lines = scriptText.split('\n');
+  async detectDataCorruption(scriptText: string): Promise<CorruptionReport> {
+    console.log("🔍 فحص فساد البيانات...");
     
-    lines.forEach((line, index) => {
-      const lineNumber = index + 1;
-      
-      // فحص مشاكل التشفير
-      if (this.hasEncodingIssues(line)) {
-        corruptions.push({
-          corruption_type: "encoding",
-          affected_lines: [lineNumber],
-          description: "مشاكل في تشفير النص - أحرف غير مقروءة",
-          severity: "medium",
-          auto_fixable: false,
-          suggested_fix: "إعادة حفظ الملف بتشفير UTF-8"
-        });
-      }
-      
-      // فحص التكرار المشبوه
-      if (index > 0 && line.trim() === lines[index - 1].trim() && line.trim().length > 10) {
-        corruptions.push({
-          corruption_type: "duplication",
-          affected_lines: [lineNumber - 1, lineNumber],
-          description: "تكرار مشبوه في النص",
-          severity: "low",
-          auto_fixable: true,
-          suggested_fix: "حذف السطر المكرر"
-        });
-      }
-      
-      // فحص الأحرف الغريبة
-      if (this.hasStrangeCharacters(line)) {
-        corruptions.push({
-          corruption_type: "formatting",
-          affected_lines: [lineNumber],
-          description: "أحرف أو رموز غير متوقعة في النص",
-          severity: "low",
-          auto_fixable: true,
-          suggested_fix: "تنظيف الأحرف الغريبة"
-        });
-      }
-      
-      // فحص القطع المفاجئ
-      if (this.looksLikeTruncation(line)) {
-        corruptions.push({
-          corruption_type: "truncation",
-          affected_lines: [lineNumber],
-          description: "يبدو أن النص مقطوع بشكل مفاجئ",
-          severity: "high",
-          auto_fixable: false,
-          suggested_fix: "مراجعة النص الأصلي واستكمال المحتوى المفقود"
-        });
-      }
-    });
+    const corruptionTypes = [];
+    let overallIntegrity = 1.0;
     
-    return corruptions;
+    // فحص ترميز الأحرف
+    const encodingIssues = this.detectEncodingIssues(scriptText);
+    if (encodingIssues.length > 0) {
+      corruptionTypes.push({
+        type: "encoding" as const,
+        description: "مشاكل في ترميز الأحرف",
+        locations: encodingIssues,
+        severity: "medium" as const,
+        fix_suggestion: "إعادة حفظ الملف بترميز UTF-8"
+      });
+      overallIntegrity -= 0.2;
+    }
+    
+    // فحص التكرار
+    const duplicationIssues = this.detectDuplication(scriptText);
+    if (duplicationIssues.length > 0) {
+      corruptionTypes.push({
+        type: "duplication" as const,
+        description: "تكرار في المحتوى",
+        locations: duplicationIssues,
+        severity: "high" as const,
+        fix_suggestion: "إزالة المحتوى المكرر"
+      });
+      overallIntegrity -= 0.3;
+    }
+    
+    // فحص البنية المشوهة
+    const structureIssues = this.detectMalformedStructure(scriptText);
+    if (structureIssues.length > 0) {
+      corruptionTypes.push({
+        type: "malformed_structure" as const,
+        description: "بنية مشوهة في النص",
+        locations: structureIssues,
+        severity: "critical" as const,
+        fix_suggestion: "إعادة تنسيق البنية الأساسية"
+      });
+      overallIntegrity -= 0.4;
+    }
+    
+    return {
+      has_corruption: corruptionTypes.length > 0,
+      corruption_types: corruptionTypes,
+      overall_integrity: Math.max(0, overallIntegrity),
+      recovery_possible: overallIntegrity > 0.3
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // مساعدات التحليل
+  // مساعدات الفحص الأساسي
   // ═══════════════════════════════════════════════════════════════════════
 
-  private detectFormatType(scriptText: string): FormatValidation['format_type'] {
-    if (scriptText.includes('<?xml') && scriptText.includes('FinalDraft')) {
-      return "fdx";
-    }
-    if (scriptText.includes('FADE IN:') || scriptText.includes('Title:')) {
-      return "fountain";
-    }
-    if (this.SCENE_HEADER_PATTERNS.some(pattern => pattern.test(scriptText))) {
-      return "standard";
-    }
-    return "unknown";
-  }
-
-  private looksLikeSceneHeader(line: string): boolean {
-    return this.SCENE_HEADER_PATTERNS.some(pattern => pattern.test(line));
-  }
-
-  private looksLikeCharacterName(line: string): boolean {
-    return this.CHARACTER_PATTERNS.some(pattern => pattern.test(line));
-  }
-
-  private looksLikeDialogue(line: string, previousLine?: string): boolean {
-    if (!previousLine) return false;
-    return this.looksLikeCharacterName(previousLine) && 
-           !this.looksLikeSceneHeader(line) && 
-           !this.looksLikeCharacterName(line);
-  }
-
-  private validateSceneHeaderFormat(header: string): { issue: string; severity: any; suggestion: string } | null {
-    // فحص وجود العناصر الأساسية
-    const hasIntExt = /(داخلي|خارجي|int\.?|ext\.?)/i.test(header);
-    const hasTimeOfDay = /(ليل|نهار|day|night|dawn|dusk|continuous)/i.test(header);
+  private async performBasicValidation(scriptText: string): Promise<Partial<FormatValidation>> {
+    const errors: FormatError[] = [];
+    const warnings: FormatWarning[] = [];
+    const suggestions: FormatSuggestion[] = [];
     
-    if (!hasIntExt) {
-      return {
-        issue: "ترويسة المشهد لا تحتوي على تحديد داخلي/خارجي",
-        severity: "error",
-        suggestion: "أضف 'داخلي' أو 'خارجي' في بداية الترويسة"
-      };
-    }
-    
-    if (!hasTimeOfDay) {
-      return {
-        issue: "ترويسة المشهد لا تحتوي على تحديد وقت اليوم",
-        severity: "warning",
-        suggestion: "أضف 'نهار' أو 'ليل' في نهاية الترويسة"
-      };
-    }
-    
-    return null;
-  }
-
-  private validateCharacterNameFormat(characterLine: string): { issue: string; severity: any; suggestion: string } | null {
-    const name = characterLine.replace(':', '').trim();
-    
-    if (name.length < 2) {
-      return {
-        issue: "اسم الشخصية قصير جداً",
-        severity: "warning",
-        suggestion: "استخدم اسماً أكثر وضوحاً للشخصية"
-      };
-    }
-    
-    if (name.length > 30) {
-      return {
-        issue: "اسم الشخصية طويل جداً",
-        severity: "warning",
-        suggestion: "اختصر اسم الشخصية"
-      };
-    }
-    
-    if (!/^[أ-ي\w\s]+$/.test(name)) {
-      return {
-        issue: "اسم الشخصية يحتوي على أحرف غير صالحة",
-        severity: "error",
-        suggestion: "استخدم أحرفاً عربية أو إنجليزية فقط"
-      };
-    }
-    
-    return null;
-  }
-
-  private validateDialogueFormat(dialogue: string): { issue: string; severity: any; suggestion: string } | null {
-    if (dialogue.length > 500) {
-      return {
-        issue: "الحوار طويل جداً",
-        severity: "info",
-        suggestion: "فكر في تقسيم الحوار إلى أجزاء أصغر"
-      };
-    }
-    
-    return null;
-  }
-
-  private validateActionFormat(action: string): { issue: string; severity: any; suggestion: string } | null {
-    if (action.length > 300) {
-      return {
-        issue: "وصف الحركة طويل جداً",
-        severity: "info",
-        suggestion: "اجعل وصف الحركة أكثر إيجازاً"
-      };
-    }
-    
-    return null;
-  }
-
-  private analyzeSceneHeader(header: string, sceneNumber: string): SceneHeaderValidation {
-    const components = this.parseSceneHeaderComponents(header);
-    
-    return {
-      scene_number: sceneNumber,
-      header_text: header,
-      is_valid: components.int_ext.is_valid && components.location.is_valid && components.time_of_day.is_valid,
-      components,
-      suggestions: this.generateSceneHeaderSuggestions(components)
-    };
-  }
-
-  private parseSceneHeaderComponents(header: string): SceneHeaderValidation['components'] {
-    const intExtMatch = header.match(/(داخلي|خارجي|int\.?|ext\.?)/i);
-    const timeMatch = header.match(/(ليل|نهار|day|night|dawn|dusk|continuous)/i);
-    
-    // استخراج الموقع (ما بين داخلي/خارجي والوقت)
-    let location = "غير محدد";
-    if (intExtMatch && timeMatch) {
-      const start = header.indexOf(intExtMatch[0]) + intExtMatch[0].length;
-      const end = header.indexOf(timeMatch[0]);
-      location = header.substring(start, end).replace(/[-–—]/g, '').trim();
-    }
-    
-    return {
-      int_ext: {
-        value: intExtMatch ? intExtMatch[0] : "غير محدد",
-        is_valid: !!intExtMatch,
-        issue: !intExtMatch ? "لم يتم تحديد داخلي/خارجي" : undefined
-      },
-      location: {
-        value: location,
-        is_valid: location !== "غير محدد" && location.length > 0,
-        issue: location === "غير محدد" ? "الموقع غير محدد" : undefined
-      },
-      time_of_day: {
-        value: timeMatch ? timeMatch[0] : "غير محدد",
-        is_valid: !!timeMatch,
-        issue: !timeMatch ? "وقت اليوم غير محدد" : undefined
-      }
-    };
-  }
-
-  private generateSceneHeaderSuggestions(components: SceneHeaderValidation['components']): string[] {
-    const suggestions: string[] = [];
-    
-    if (!components.int_ext.is_valid) {
-      suggestions.push("أضف 'داخلي' أو 'خارجي' في بداية الترويسة");
-    }
-    
-    if (!components.location.is_valid) {
-      suggestions.push("حدد موقع المشهد بوضوح");
-    }
-    
-    if (!components.time_of_day.is_valid) {
-      suggestions.push("أضف وقت اليوم (نهار/ليل) في نهاية الترويسة");
-    }
-    
-    return suggestions;
-  }
-
-  private normalizeCharacterName(name: string): string {
-    return name.toLowerCase().replace(/\s+/g, ' ').trim();
-  }
-
-  private normalizeLocationName(location: string): string {
-    return location.toLowerCase().replace(/\s+/g, ' ').trim();
-  }
-
-  private extractLocationFromHeader(header: string): { location: string; intExt: string } {
-    const intExtMatch = header.match(/(داخلي|خارجي|int\.?|ext\.?)/i);
-    const timeMatch = header.match(/(ليل|نهار|day|night|dawn|dusk|continuous)/i);
-    
-    let location = "غير محدد";
-    if (intExtMatch && timeMatch) {
-      const start = header.indexOf(intExtMatch[0]) + intExtMatch[0].length;
-      const end = header.indexOf(timeMatch[0]);
-      location = header.substring(start, end).replace(/[-–—]/g, '').trim();
-    }
-    
-    return {
-      location,
-      intExt: intExtMatch ? intExtMatch[0] : "غير محدد"
-    };
-  }
-
-  private hasEncodingIssues(line: string): boolean {
-    // فحص أحرف التشفير المكسورة
-    return /[\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(line);
-  }
-
-  private hasStrangeCharacters(line: string): boolean {
-    // فحص أحرف غير متوقعة (عدا الأحرف العربية والإنجليزية والأرقام والعلامات الأساسية)
-    return /[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFFa-zA-Z0-9\s\.\,\!\?\:\;\-\–\—\(\)\[\]\{\}\"\'\/\\]/.test(line);
-  }
-
-  private looksLikeTruncation(line: string): boolean {
-    // فحص إذا كان السطر ينتهي بشكل مفاجئ أو غير طبيعي
-    return line.length > 50 && !line.match(/[.!?؟]$/) && line.endsWith('...');
-  }
-
-  private calculateStatistics(scriptText: string): TechnicalAnalysis['statistics'] {
     const lines = scriptText.split('\n');
-    let sceneCount = 0;
-    let dialogueLines = 0;
-    let actionLines = 0;
-    const characters = new Set<string>();
-    const locations = new Set<string>();
     
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) return;
-      
-      if (this.looksLikeSceneHeader(trimmed)) {
-        sceneCount++;
-        const locationInfo = this.extractLocationFromHeader(trimmed);
-        if (locationInfo.location !== "غير محدد") {
-          locations.add(locationInfo.location);
-        }
-      } else if (this.looksLikeCharacterName(trimmed)) {
-        const name = trimmed.replace(':', '').trim();
-        characters.add(name);
-      } else if (this.looksLikeDialogue(trimmed, lines[lines.indexOf(line) - 1])) {
-        dialogueLines++;
-      } else {
-        actionLines++;
-      }
-    });
-    
-    return {
-      total_scenes: sceneCount,
-      total_characters: characters.size,
-      total_locations: locations.size,
-      dialogue_lines: dialogueLines,
-      action_lines: actionLines,
-      avg_scene_length: sceneCount > 0 ? Math.round(lines.length / sceneCount) : 0
-    };
-  }
-
-  private calculateOverallHealth(
-    format: FormatValidation,
-    sceneHeaders: SceneHeaderValidation[],
-    characters: CharacterConsistency[],
-    locations: LocationConsistency[],
-    corruptions: DataCorruption[]
-  ): TechnicalAnalysis['overall_health'] {
-    let technicalScore = 1.0;
-    const recommendations: string[] = [];
-    let criticalIssues = 0;
-    
-    // تأثير التنسيق
-    technicalScore *= format.compliance_score;
-    if (!format.is_valid) {
-      recommendations.push("إصلاح مشاكل التنسيق الأساسية");
-    }
-    
-    // تأثير ترويسات المشاهد
-    const invalidHeaders = sceneHeaders.filter(h => !h.is_valid).length;
-    if (invalidHeaders > 0) {
-      technicalScore -= (invalidHeaders / sceneHeaders.length) * 0.3;
-      recommendations.push(`إصلاح ${invalidHeaders} ترويسة مشهد غير صالحة`);
-    }
-    
-    // تأثير اتساق الشخصيات
-    const characterIssues = characters.reduce((sum, char) => sum + char.inconsistencies.length, 0);
-    if (characterIssues > 0) {
-      technicalScore -= Math.min(characterIssues * 0.05, 0.2);
-      recommendations.push(`حل ${characterIssues} مشكلة في اتساق الشخصيات`);
-    }
-    
-    // تأثير اتساق المواقع
-    const locationIssues = locations.reduce((sum, loc) => sum + loc.inconsistencies.length, 0);
-    if (locationIssues > 0) {
-      technicalScore -= Math.min(locationIssues * 0.05, 0.2);
-      recommendations.push(`حل ${locationIssues} مشكلة في اتساق المواقع`);
-    }
-    
-    // تأثير فساد البيانات
-    criticalIssues = corruptions.filter(c => c.severity === "critical").length;
-    const highIssues = corruptions.filter(c => c.severity === "high").length;
-    
-    technicalScore -= criticalIssues * 0.3;
-    technicalScore -= highIssues * 0.1;
-    
-    if (criticalIssues > 0) {
-      recommendations.push(`إصلاح ${criticalIssues} مشكلة حرجة في البيانات`);
-    }
-    
-    technicalScore = Math.max(0, technicalScore);
-    
-    return {
-      technical_score: technicalScore,
-      readiness_for_production: technicalScore > 0.8 && criticalIssues === 0,
-      critical_issues_count: criticalIssues,
-      recommendations
-    };
-  }
-
-  private enhanceWithPythonResults(analysis: TechnicalAnalysis, pythonResults: any): void {
-    if (!pythonResults || !pythonResults.result) return;
-    
-    const enhancement = pythonResults.result;
-    
-    // تحسين النتائج بناءً على Python service
-    if (enhancement.consistency_issues) {
-      // إضافة مشاكل الاتساق المكتشفة
-      enhancement.consistency_issues.forEach((issue: any) => {
-        if (issue.type === "character") {
-          const character = analysis.character_consistency.find(c => 
-            c.character_name.toLowerCase().includes(issue.name.toLowerCase())
-          );
-          if (character) {
-            character.inconsistencies.push({
-              type: "spelling",
-              description: issue.description,
-              scenes_affected: issue.scenes || [],
-              severity: issue.severity || "minor"
-            });
-          }
-        }
+    // فحص الطول الأساسي
+    if (scriptText.length < 100) {
+      errors.push({
+        type: "structure",
+        message: "النص قصير جداً ليكون سيناريو صالح",
+        severity: "critical",
+        suggestion: "تأكد من تحميل النص كاملاً"
       });
     }
     
-    if (enhancement.technical_score !== undefined) {
-      // تحديث النتيجة التقنية
-      analysis.overall_health.technical_score = Math.max(
-        analysis.overall_health.technical_score,
-        enhancement.technical_score
-      );
+    // فحص وجود مشاهد
+    const sceneCount = this.countScenes(scriptText);
+    if (sceneCount === 0) {
+      errors.push({
+        type: "structure",
+        message: "لم يتم العثور على أي مشاهد في النص",
+        severity: "critical",
+        suggestion: "تأكد من وجود ترويسات مشاهد صحيحة"
+      });
+    } else if (sceneCount < 3) {
+      warnings.push({
+        type: "consistency",
+        message: "عدد المشاهد قليل جداً",
+        suggestion: "تأكد من اكتمال السيناريو",
+        impact: "medium"
+      });
     }
-  }
-
-  private createFallbackTechnicalAnalysis(scriptText: string): TechnicalAnalysis {
-    const statistics = this.calculateStatistics(scriptText);
+    
+    // فحص وجود شخصيات
+    const characterCount = this.countCharacters(scriptText);
+    if (characterCount === 0) {
+      errors.push({
+        type: "character",
+        message: "لم يتم العثور على أي شخصيات في النص",
+        severity: "critical",
+        suggestion: "تأكد من تنسيق أسماء الشخصيات بشكل صحيح"
+      });
+    }
+    
+    // فحص الأسطر الفارغة المفرطة
+    const emptyLineRatio = this.calculateEmptyLineRatio(lines);
+    if (emptyLineRatio > 0.5) {
+      warnings.push({
+        type: "formatting",
+        message: "نسبة عالية من الأسطر الفارغة",
+        suggestion: "مراجعة التنسيق وإزالة الأسطر الفارغة الزائدة",
+        impact: "low"
+      });
+    }
     
     return {
-      format_validation: {
-        is_valid: true,
-        format_type: "unknown",
-        compliance_score: 0.7,
-        format_issues: []
+      errors,
+      warnings,
+      suggestions
+    };
+  }
+
+  private extractSceneHeaders(scriptText: string): string[] {
+    const headers: string[] = [];
+    const lines = scriptText.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (this.isSceneHeader(trimmed)) {
+        headers.push(trimmed);
+      }
+    }
+    
+    return headers;
+  }
+
+  private isSceneHeader(line: string): boolean {
+    return Object.values(this.SCENE_HEADER_PATTERNS).some(pattern => 
+      pattern.test(line)
+    );
+  }
+
+  private async validateSingleSceneHeader(
+    header: string, 
+    sceneNumber: number, 
+    allHeaders: string[]
+  ): Promise<SceneHeaderValidation> {
+    
+    // استخراج المكونات
+    const intExt = this.extractIntExt(header);
+    const location = this.extractLocation(header);
+    const timeOfDay = this.extractTimeOfDay(header);
+    
+    // فحص الاتساق مع المشاهد السابقة
+    const locationConsistency = this.checkLocationConsistency(location.value, allHeaders);
+    
+    const validation: SceneHeaderValidation = {
+      scene_number: sceneNumber.toString(),
+      raw_header: header,
+      int_ext: intExt,
+      location: {
+        ...location,
+        is_consistent: locationConsistency.isConsistent,
+        previous_occurrences: locationConsistency.previousOccurrences
       },
+      time_of_day: timeOfDay,
+      overall_valid: intExt.is_valid && location.is_valid && timeOfDay.is_valid,
+      confidence: this.calculateHeaderConfidence(intExt, location, timeOfDay)
+    };
+    
+    return validation;
+  }
+
+  private extractIntExt(header: string): { value: string; is_valid: boolean; issues: string[] } {
+    const issues: string[] = [];
+    let value = "غير محدد";
+    let isValid = false;
+    
+    // البحث عن INT/EXT
+    for (const [lang, pattern] of Object.entries(this.INT_EXT_PATTERNS)) {
+      const match = header.match(pattern);
+      if (match) {
+        value = match[1];
+        isValid = true;
+        break;
+      }
+    }
+    
+    if (!isValid) {
+      issues.push("لم يتم تحديد داخلي/خارجي بوضوح");
+    }
+    
+    return { value, is_valid: isValid, issues };
+  }
+
+  private extractLocation(header: string): { value: string; is_valid: boolean; issues: string[] } {
+    const issues: string[] = [];
+    
+    // إزالة رقم المشهد والكلمات المفتاحية
+    let cleaned = header.replace(/^(?:مشهد|scene)\s*\d+\s*[:\-–—]?\s*/i, '');
+    cleaned = cleaned.replace(/\b(داخلي|خارجي|int\.?|ext\.?)\s*/i, '');
+    cleaned = cleaned.replace(/\b(ليل|نهار|day|night|صباح|مساء)\s*/i, '');
+    
+    // استخراج الموقع
+    const parts = cleaned.split(/[-–—|]/).map(p => p.trim()).filter(p => p);
+    const location = parts.find(p => p.length > 2) || "غير محدد";
+    
+    const isValid = location !== "غير محدد" && location.length > 2;
+    
+    if (!isValid) {
+      issues.push("الموقع غير واضح أو مفقود");
+    }
+    
+    if (location.length > 50) {
+      issues.push("اسم الموقع طويل جداً");
+    }
+    
+    return { value: location, is_valid: isValid, issues };
+  }
+
+  private extractTimeOfDay(header: string): { value: string; is_valid: boolean; is_consistent: boolean; issues: string[] } {
+    const issues: string[] = [];
+    let value = "غير محدد";
+    let isValid = false;
+    
+    // البحث عن وقت اليوم
+    for (const [lang, pattern] of Object.entries(this.TIME_PATTERNS)) {
+      const match = header.match(pattern);
+      if (match) {
+        value = match[1];
+        isValid = true;
+        break;
+      }
+    }
+    
+    if (!isValid) {
+      issues.push("وقت اليوم غير محدد");
+    }
+    
+    return { value, is_valid: isValid, is_consistent: true, issues };
+  }
+
+  private checkLocationConsistency(
+    location: string, 
+    allHeaders: string[]
+  ): { isConsistent: boolean; previousOccurrences: string[] } {
+    const previousOccurrences: string[] = [];
+    
+    for (const header of allHeaders) {
+      const headerLocation = this.extractLocation(header);
+      if (this.isSimilarLocation(location, headerLocation.value)) {
+        previousOccurrences.push(header);
+      }
+    }
+    
+    // إذا كان هناك تكرارات، فحص الاتساق
+    const isConsistent = previousOccurrences.length <= 1 || 
+      previousOccurrences.every(occurrence => 
+        this.extractLocation(occurrence).value === location
+      );
+    
+    return { isConsistent, previousOccurrences };
+  }
+
+  private isSimilarLocation(loc1: string, loc2: string): boolean {
+    if (loc1 === loc2) return true;
+    
+    // فحص التشابه (تجاهل الحالة والمسافات)
+    const normalized1 = loc1.toLowerCase().replace(/\s+/g, '');
+    const normalized2 = loc2.toLowerCase().replace(/\s+/g, '');
+    
+    return normalized1 === normalized2;
+  }
+
+  private calculateHeaderConfidence(
+    intExt: any, 
+    location: any, 
+    timeOfDay: any
+  ): number {
+    let confidence = 0.0;
+    
+    if (intExt.is_valid) confidence += 0.33;
+    if (location.is_valid) confidence += 0.33;
+    if (timeOfDay.is_valid) confidence += 0.34;
+    
+    // تقليل الثقة بناءً على المشاكل
+    const totalIssues = intExt.issues.length + location.issues.length + timeOfDay.issues.length;
+    confidence -= (totalIssues * 0.1);
+    
+    return Math.max(0, Math.min(1, confidence));
+  }
+
+  private extractAllCharacters(scriptText: string): string[] {
+    const matches = scriptText.match(this.CHARACTER_PATTERN) || [];
+    const characters = matches.map(match => match.replace(':', '').trim());
+    return Array.from(new Set(characters));
+  }
+
+  private async analyzeCharacterConsistency(
+    characterName: string, 
+    scriptText: string
+  ): Promise<CharacterConsistency> {
+    
+    const variations = this.findCharacterVariations(characterName, scriptText);
+    const inconsistencies = this.detectCharacterInconsistencies(characterName, variations, scriptText);
+    
+    return {
+      character_name: characterName,
+      total_appearances: variations.reduce((sum, v) => sum + v.count, 0),
+      name_variations: variations.map(v => v.variation),
+      inconsistencies,
+      is_consistent: inconsistencies.length === 0,
+      confidence: this.calculateCharacterConsistencyConfidence(inconsistencies)
+    };
+  }
+
+  private findCharacterVariations(characterName: string, scriptText: string): Array<{variation: string; count: number}> {
+    const variations = new Map<string, number>();
+    const lines = scriptText.split('\n');
+    
+    const baseName = characterName.toLowerCase().replace(/\s+/g, '');
+    
+    for (const line of lines) {
+      const match = line.match(this.CHARACTER_PATTERN);
+      if (match) {
+        const foundName = match[1].trim();
+        const normalizedFound = foundName.toLowerCase().replace(/\s+/g, '');
+        
+        // فحص التشابه
+        if (this.isSimilarCharacterName(baseName, normalizedFound)) {
+          const count = variations.get(foundName) || 0;
+          variations.set(foundName, count + 1);
+        }
+      }
+    }
+    
+    return Array.from(variations.entries()).map(([variation, count]) => ({
+      variation,
+      count
+    }));
+  }
+
+  private isSimilarCharacterName(name1: string, name2: string): boolean {
+    if (name1 === name2) return true;
+    
+    // فحص التشابه الصوتي البسيط
+    const similarity = this.calculateStringSimilarity(name1, name2);
+    return similarity > 0.8;
+  }
+
+  private calculateStringSimilarity(str1: string, str2: string): number {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = this.levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  }
+
+  private levenshteinDistance(str1: string, str2: string): number {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
+  }
+
+  private detectCharacterInconsistencies(
+    characterName: string,
+    variations: Array<{variation: string; count: number}>,
+    scriptText: string
+  ): Array<{
+    type: "spelling" | "formatting" | "case" | "missing_colon";
+    scenes: string[];
+    examples: string[];
+    severity: "minor" | "major" | "critical";
+  }> {
+    
+    const inconsistencies = [];
+    
+    // فحص تنوع الإملاء
+    if (variations.length > 1) {
+      const spellingVariations = variations.filter(v => v.variation !== characterName);
+      if (spellingVariations.length > 0) {
+        inconsistencies.push({
+          type: "spelling" as const,
+          scenes: this.findScenesWithCharacter(spellingVariations.map(v => v.variation), scriptText),
+          examples: spellingVariations.map(v => v.variation),
+          severity: spellingVariations.length > 2 ? "major" as const : "minor" as const
+        });
+      }
+    }
+    
+    // فحص النقطتين المفقودة
+    const missingColonLines = this.findLinesWithMissingColon(characterName, scriptText);
+    if (missingColonLines.length > 0) {
+      inconsistencies.push({
+        type: "missing_colon" as const,
+        scenes: this.findScenesForLines(missingColonLines, scriptText),
+        examples: missingColonLines.slice(0, 3),
+        severity: missingColonLines.length > 5 ? "major" as const : "minor" as const
+      });
+    }
+    
+    return inconsistencies;
+  }
+
+  private findScenesWithCharacter(characterNames: string[], scriptText: string): string[] {
+    const scenes: string[] = [];
+    const lines = scriptText.split('\n');
+    let currentScene = "مشهد غير محدد";
+    
+    for (const line of lines) {
+      if (this.isSceneHeader(line.trim())) {
+        currentScene = line.trim();
+      }
+      
+      for (const charName of characterNames) {
+        if (line.includes(charName)) {
+          scenes.push(currentScene);
+          break;
+        }
+      }
+    }
+    
+    return Array.from(new Set(scenes));
+  }
+
+  private findLinesWithMissingColon(characterName: string, scriptText: string): string[] {
+    const lines = scriptText.split('\n');
+    const missingColonLines: string[] = [];
+    
+    const namePattern = new RegExp(`^\\s*${characterName}\\s*[^:]`, 'i');
+    
+    for (const line of lines) {
+      if (namePattern.test(line)) {
+        missingColonLines.push(line.trim());
+      }
+    }
+    
+    return missingColonLines;
+  }
+
+  private findScenesForLines(lines: string[], scriptText: string): string[] {
+    const scenes: string[] = [];
+    const scriptLines = scriptText.split('\n');
+    let currentScene = "مشهد غير محدد";
+    
+    for (const scriptLine of scriptLines) {
+      if (this.isSceneHeader(scriptLine.trim())) {
+        currentScene = scriptLine.trim();
+      }
+      
+      for (const targetLine of lines) {
+        if (scriptLine.trim() === targetLine) {
+          scenes.push(currentScene);
+          break;
+        }
+      }
+    }
+    
+    return Array.from(new Set(scenes));
+  }
+
+  private calculateCharacterConsistencyConfidence(inconsistencies: any[]): number {
+    if (inconsistencies.length === 0) return 1.0;
+    
+    let confidence = 1.0;
+    
+    for (const inconsistency of inconsistencies) {
+      switch (inconsistency.severity) {
+        case "minor":
+          confidence -= 0.1;
+          break;
+        case "major":
+          confidence -= 0.3;
+          break;
+        case "critical":
+          confidence -= 0.5;
+          break;
+      }
+    }
+    
+    return Math.max(0, confidence);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // مساعدات كشف فساد البيانات
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private detectEncodingIssues(scriptText: string): Array<{
+    line_number?: number;
+    span_start: number;
+    span_end: number;
+    sample_text: string;
+  }> {
+    const issues = [];
+    const lines = scriptText.split('\n');
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // فحص الأحرف المشوهة
+      const corruptedChars = /[�\uFFFD\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
+      let match;
+      
+      while ((match = corruptedChars.exec(line)) !== null) {
+        const lineStart = scriptText.indexOf(line);
+        issues.push({
+          line_number: i + 1,
+          span_start: lineStart + match.index,
+          span_end: lineStart + match.index + match[0].length,
+          sample_text: line.substring(Math.max(0, match.index - 10), match.index + 10)
+        });
+      }
+    }
+    
+    return issues;
+  }
+
+  private detectDuplication(scriptText: string): Array<{
+    line_number?: number;
+    span_start: number;
+    span_end: number;
+    sample_text: string;
+  }> {
+    const issues = [];
+    const lines = scriptText.split('\n');
+    const seenLines = new Map<string, number>();
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      if (line.length > 10) { // تجاهل الأسطر القصيرة
+        const firstOccurrence = seenLines.get(line);
+        
+        if (firstOccurrence !== undefined) {
+          const lineStart = scriptText.indexOf(lines[i]);
+          issues.push({
+            line_number: i + 1,
+            span_start: lineStart,
+            span_end: lineStart + lines[i].length,
+            sample_text: line.substring(0, 50) + "..."
+          });
+        } else {
+          seenLines.set(line, i);
+        }
+      }
+    }
+    
+    return issues;
+  }
+
+  private detectMalformedStructure(scriptText: string): Array<{
+    line_number?: number;
+    span_start: number;
+    span_end: number;
+    sample_text: string;
+  }> {
+    const issues = [];
+    const lines = scriptText.split('\n');
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // فحص الأسطر المشوهة (أحرف غريبة متتالية)
+      const malformedPattern = /[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF.,!?;:()\-"']{3,}/g;
+      let match;
+      
+      while ((match = malformedPattern.exec(line)) !== null) {
+        const lineStart = scriptText.indexOf(line);
+        issues.push({
+          line_number: i + 1,
+          span_start: lineStart + match.index,
+          span_end: lineStart + match.index + match[0].length,
+          sample_text: line.substring(Math.max(0, match.index - 10), match.index + 20)
+        });
+      }
+    }
+    
+    return issues;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // مساعدات عامة
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private countScenes(scriptText: string): number {
+    return this.extractSceneHeaders(scriptText).length;
+  }
+
+  private countCharacters(scriptText: string): number {
+    return this.extractAllCharacters(scriptText).length;
+  }
+
+  private calculateEmptyLineRatio(lines: string[]): number {
+    const emptyLines = lines.filter(line => line.trim().length === 0).length;
+    return emptyLines / lines.length;
+  }
+
+  private async checkLocationConsistencyForScript(scriptText: string): Promise<LocationConsistency[]> {
+    const headers = this.extractSceneHeaders(scriptText);
+    const locationMap = new Map<string, string[]>();
+    
+    // جمع جميع المواقع
+    for (const header of headers) {
+      const location = this.extractLocation(header);
+      if (location.is_valid) {
+        const existing = locationMap.get(location.value) || [];
+        existing.push(header);
+        locationMap.set(location.value, existing);
+      }
+    }
+    
+    // تحليل الاتساق
+    const consistencyReports: LocationConsistency[] = [];
+    
+    for (const [locationName, occurrences] of Array.from(locationMap.entries())) {
+      const variations = Array.from(new Set(occurrences.map(h => this.extractLocation(h).value)));
+      
+      consistencyReports.push({
+        location_name: locationName,
+        total_appearances: occurrences.length,
+        variations,
+        inconsistencies: variations.length > 1 ? [{
+          type: "spelling",
+          scenes: occurrences,
+          examples: variations,
+          severity: variations.length > 2 ? "major" : "minor"
+        }] : [],
+        is_consistent: variations.length === 1
+      });
+    }
+    
+    return consistencyReports;
+  }
+
+  private mergeValidationResults(
+    sceneHeaders: SceneHeaderValidation[],
+    characterConsistency: CharacterConsistency[],
+    locationConsistency: LocationConsistency[],
+    corruptionReport: CorruptionReport,
+    enhancedValidation: any
+  ): FormatValidation {
+    
+    const errors = [...(basicValidation.errors || [])];
+    const warnings = [...(basicValidation.warnings || [])];
+    const suggestions = [...(basicValidation.suggestions || [])];
+    
+    // إضافة أخطاء من ترويسات المشاهد
+    sceneHeaders.forEach(header => {
+      if (!header.overall_valid) {
+        errors.push({
+          type: "header",
+          message: `مشكلة في ترويسة المشهد ${header.scene_number}`,
+          severity: "error",
+          suggestion: "مراجعة تنسيق ترويسة المشهد"
+        });
+      }
+    });
+    
+    // إضافة مشاكل اتساق الشخصيات
+    characterConsistency.forEach(char => {
+      if (!char.is_consistent) {
+        warnings.push({
+          type: "consistency",
+          message: `عدم اتساق في اسم الشخصية: ${char.character_name}`,
+          suggestion: "توحيد كتابة اسم الشخصية",
+          impact: "medium"
+        });
+      }
+    });
+    
+    // إضافة مشاكل فساد البيانات
+    corruptionReport.corruption_types.forEach(corruption => {
+      errors.push({
+        type: "structure",
+        message: corruption.description,
+        severity: corruption.severity === "critical" ? "critical" : "error",
+        suggestion: corruption.fix_suggestion
+      });
+    });
+    
+    // دمج النتائج المحسنة من Python
+    if (enhancedValidation?.errors) {
+      errors.push(...enhancedValidation.errors);
+    }
+    if (enhancedValidation?.warnings) {
+      warnings.push(...enhancedValidation.warnings);
+    }
+    
+    // حساب النتيجة الإجمالية
+    const overallScore = this.calculateOverallScore(
+      errors,
+      warnings,
+      sceneHeaders,
+      characterConsistency,
+      corruptionReport
+    );
+    
+    return {
+      is_valid: errors.filter(e => e.severity === "critical").length === 0,
+      overall_score: overallScore,
+      errors,
+      warnings,
+      suggestions,
+      scene_headers: sceneHeaders,
+      character_consistency: characterConsistency,
+      location_consistency: locationConsistency,
+      corruption_report: corruptionReport,
+      processing_metadata: {
+        total_lines: 0, // سيتم تحديثه
+        total_scenes: sceneHeaders.length,
+        total_characters: characterConsistency.length,
+        processing_time: 0, // سيتم تحديثه
+        confidence: overallScore
+      }
+    };
+  }
+
+  private calculateOverallScore(
+    errors: FormatError[],
+    warnings: FormatWarning[],
+    sceneHeaders: SceneHeaderValidation[],
+    characterConsistency: CharacterConsistency[],
+    corruptionReport: CorruptionReport
+  ): number {
+    let score = 1.0;
+    
+    // تقليل النتيجة بناءً على الأخطاء
+    errors.forEach(error => {
+      switch (error.severity) {
+        case "critical":
+          score -= 0.3;
+          break;
+        case "error":
+          score -= 0.1;
+          break;
+        case "warning":
+          score -= 0.05;
+          break;
+      }
+    });
+    
+    // تقليل النتيجة بناءً على التحذيرات
+    warnings.forEach(warning => {
+      switch (warning.impact) {
+        case "high":
+          score -= 0.1;
+          break;
+        case "medium":
+          score -= 0.05;
+          break;
+        case "low":
+          score -= 0.02;
+          break;
+      }
+    });
+    
+    // تأثير فساد البيانات
+    score *= corruptionReport.overall_integrity;
+    
+    // تأثير اتساق الشخصيات
+    const avgCharacterConsistency = characterConsistency.length > 0
+      ? characterConsistency.reduce((sum, char) => sum + char.confidence, 0) / characterConsistency.length
+      : 1.0;
+    score *= avgCharacterConsistency;
+    
+    return Math.max(0, Math.min(1, score));
+  }
+
+  private createFallbackValidation(scriptText: string): FormatValidation {
+    const lines = scriptText.split('\n');
+    
+    return {
+      is_valid: scriptText.length > 100,
+      overall_score: scriptText.length > 100 ? 0.6 : 0.2,
+      errors: scriptText.length <= 100 ? [{
+        type: "structure",
+        message: "النص قصير جداً أو فارغ",
+        severity: "critical",
+        suggestion: "تأكد من تحميل السيناريو بشكل صحيح"
+      }] : [],
+      warnings: [],
+      suggestions: [],
       scene_headers: [],
       character_consistency: [],
       location_consistency: [],
-      data_corruption: [],
-      overall_health: {
-        technical_score: 0.7,
-        readiness_for_production: false,
-        critical_issues_count: 0,
-        recommendations: ["مراجعة تقنية شاملة مطلوبة"]
+      corruption_report: {
+        has_corruption: false,
+        corruption_types: [],
+        overall_integrity: 1.0,
+        recovery_possible: true
       },
-      statistics
+      processing_metadata: {
+        total_lines: lines.length,
+        total_scenes: 0,
+        total_characters: 0,
+        processing_time: 0,
+        confidence: 0.5
+      }
     };
   }
 }
