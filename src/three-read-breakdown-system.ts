@@ -268,7 +268,7 @@ export class PythonBrainService {
       
       return response.data;
     } catch (error) {
-      console.warn(`Python service unavailable: ${error.message}`);
+      console.warn(`Python service unavailable: ${(error as Error).message}`);
       return {
         job_id: `fallback_${Date.now()}`,
         status: "fallback",
@@ -282,7 +282,7 @@ export class PythonBrainService {
       const response = await axios.get(`${this.baseUrl}/jobs/${jobId}`);
       return response.data;
     } catch (error) {
-      return { status: "failed", error: error.message };
+      return { status: "failed", error: (error as Error).message };
     }
   }
   
@@ -323,7 +323,7 @@ export class ModelManager {
         this.models.set(key, model);
         console.log(`✓ تم تهيئة النموذج: ${config.name}`);
       } catch (error) {
-        console.warn(`⚠️ فشل تهيئة النموذج ${config.name}: ${error.message}`);
+        console.warn(`⚠️ فشل تهيئة النموذج ${config.name}: ${(error as Error).message}`);
       }
     }
   }

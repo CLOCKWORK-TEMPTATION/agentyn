@@ -114,7 +114,7 @@ export class EmotionalReadingAgent {
           analysisResult = this.enhanceWithPythonResults(analysisResult, pythonResult);
         }
       } catch (pythonError) {
-        console.warn("فشل التحسين بـ Python service:", pythonError.message);
+        console.warn("فشل التحسين بـ Python service:", (pythonError as Error).message);
       }
       
       // التحقق من عدم وجود كلمات محظورة
